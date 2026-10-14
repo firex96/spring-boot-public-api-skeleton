@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/admin-layout :: head('관리자 대시보드 - Demo')}"></head>
+<body class="admin-body">
+<aside th:replace="~{fragments/admin-layout :: sidebar}"></aside>
+
+<div class="admin-content">
+    <header th:replace="~{fragments/admin-layout :: admin-header}"></header>
+
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>관리자 대시보드</h1>
+            <p>시스템 관리 및 모니터링</p>
+        </div>
+
+        <div class="dashboard-stats">
+            <div class="stat-card">
+                <span class="stat-icon">👥</span>
+                <div class="stat-info">
+                    <h3>사용자</h3>
+                    <p class="stat-value" id="userCount" title="사용자 목록 API 없음 — 사용자 관리는 ID 로 조회한다">—</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-icon">📁</span>
+                <div class="stat-info">
+                    <h3>그룹</h3>
+                    <p class="stat-value" id="groupCount">-</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-icon">🔐</span>
+                <div class="stat-info">
+                    <h3>권한</h3>
+                    <p class="stat-value" id="permissionCount">-</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-icon">🔗</span>
+                <div class="stat-info">
+                    <h3>OAuth2 클라이언트</h3>
+                    <p class="stat-value" id="clientCount">-</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <section class="dashboard-section">
+                <h2>빠른 링크</h2>
+                <div class="quick-links">
+                    <a th:href="@{/demo/admin/users}" class="quick-link">
+                        <span class="icon">👥</span>
+                        사용자 관리
+                    </a>
+                    <a th:href="@{/demo/admin/groups}" class="quick-link">
+                        <span class="icon">📁</span>
+                        그룹 관리
+                    </a>
+                    <a th:href="@{/demo/admin/permissions}" class="quick-link">
+                        <span class="icon">🔐</span>
+                        권한 관리
+                    </a>
+                    <a th:href="@{/demo/admin/audit-logs}" class="quick-link">
+                        <span class="icon">📋</span>
+                        감사 로그
+                    </a>
+                    <a th:href="@{/demo/admin/oauth2-clients}" class="quick-link">
+                        <span class="icon">🔗</span>
+                        OAuth2 클라이언트
+                    </a>
+                    <a th:href="@{/demo/admin/security}" class="quick-link">
+                        <span class="icon">🛡️</span>
+                        보안 관리
+                    </a>
+                </div>
+            </section>
+
+            <section class="dashboard-section">
+                <h2>최근 감사 로그</h2>
+                <div class="recent-logs" id="recentLogs">
+                    <p class="loading">로그를 불러오는 중...</p>
+                </div>
+                <a th:href="@{/demo/admin/audit-logs}" class="view-all">전체 보기 →</a>
+            </section>
+        </div>
+
+        <div class="info-box">
+            <h3>관리자 API 엔드포인트</h3>
+            <p>모든 관리자 API는 <code>/admin/*</code> 경로에서 접근 가능하며, SUPER_ADMIN 또는 ADMIN 역할이 필요합니다.</p>
+            <a href="/swagger-ui.html" target="_blank" class="btn-secondary">API 문서 보기</a>
+        </div>
+    </main>
+</div>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<th:block th:replace="~{fragments/admin-layout :: admin-scripts}"></th:block>
+<script>
+    document.addEventListener('DOMContentLoaded', async function() {
+        loadCounts();
+
+        // 최근 감사 로그 로드
+        try {
+            const response = await apiCall('/admin/audit/logs?page=0&size=5', 'GET');
+            const logsContainer = document.getElementById('recentLogs');
+
+            if (response.ok && response.data?.content) {
+                if (response.data.content.length === 0) {
+                    logsContainer.innerHTML = '<p class="empty">최근 로그가 없습니다.</p>';
+                } else {
+                    // 서버 값은 전부 escapeHtml 을 지난다(stored XSS 방지)
+                    logsContainer.innerHTML = response.data.content.map(log => `
+                        <div class="log-item">
+                            <span class="log-event">${escapeHtml(log.eventType || log.action)}</span>
+                            <span class="log-user">${escapeHtml(log.userId || 'System')}</span>
+                            <span class="log-time">${escapeHtml(new Date(log.createdAt).toLocaleString('ko-KR'))}</span>
+                        </div>
+                    `).join('');
+                }
+            } else {
+                logsContainer.innerHTML = `<p class="error">불러오기 실패 (HTTP ${response.status}) ${escapeHtml(response.data?.reason ?? response.data?.resultMessage ?? '')}</p>`;
+            }
+        } catch (error) {
+            document.getElementById('recentLogs').innerHTML =
+                '<p class="error">로그를 불러올 수 없습니다.</p>';
+        }
+    });
+
+    // 카운트 3 은 목록 API 의 길이로 — 사용자 목록 API 는 없으므로 사용자 카드는 「—」 로 둔다
+    async function loadCounts() {
+        const cards = [
+            ['groupCount', '/admin/groups'],
+            ['permissionCount', '/admin/permissions'],
+            ['clientCount', '/admin/oauth2/clients']
+        ];
+        await Promise.all(cards.map(async ([id, path]) => {
+            const el = document.getElementById(id);
+            try {
+                const response = await apiCall(path, 'GET');
+                el.textContent = (response.ok && Array.isArray(response.data)) ? String(response.data.length) : '!';
+            } catch (e) {
+                el.textContent = '!';
+            }
+        }));
+    }
+</script>
+</body>
+</html>

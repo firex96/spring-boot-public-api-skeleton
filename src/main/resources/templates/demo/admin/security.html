@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/admin-layout :: head('보안 관리 - Demo')}"></head>
+<body class="admin-body">
+<aside th:replace="~{fragments/admin-layout :: sidebar}"></aside>
+
+<div class="admin-content">
+    <header th:replace="~{fragments/admin-layout :: admin-header}"></header>
+
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>보안 관리</h1>
+        </div>
+
+        <div class="security-grid">
+            <!-- IP 차단 관리 -->
+            <section class="security-section">
+                <div class="section-header">
+                    <h2>IP 차단 관리</h2>
+                    <button onclick="openModal('addIpModal')" class="btn-primary">+ IP 차단</button>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>IP 주소</th>
+                                <th>차단 사유</th>
+                                <th>차단 시간</th>
+                                <th>만료 시간</th>
+                                <th>영구</th>
+                                <th>액션</th>
+                            </tr>
+                        </thead>
+                        <tbody id="blockedIpTableBody">
+                            <tr>
+                                <td colspan="6" class="loading">로딩 중...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 계정 잠금 상태 · 해제 (잠긴 계정 목록 API 는 없다 — 사용자명으로 조회한다) -->
+            <section class="security-section">
+                <div class="section-header">
+                    <h2>계정 잠금 상태</h2>
+                </div>
+                <div class="filter-bar">
+                    <input type="text" id="statusUsername" placeholder="사용자명(로그인 ID)" class="search-input">
+                    <button onclick="loadAccountStatus()" class="btn-secondary">조회</button>
+                    <button id="unlockAccountButton" onclick="unlockAccount()" class="btn-primary">잠금 해제</button>
+                </div>
+                <div class="settings-grid" id="accountStatus">
+                    <div class="setting-item"><label>사용자명</label><span id="statusUsernameValue">-</span></div>
+                    <div class="setting-item"><label>실패 횟수 / 최대</label><span id="statusAttempts">-</span></div>
+                    <div class="setting-item"><label>잠김</label><span id="statusLocked">-</span></div>
+                    <div class="setting-item"><label>남은 잠금 시간 (초)</label><span id="statusRemaining">-</span></div>
+                </div>
+            </section>
+
+            <!-- 보안 설정 -->
+            <section class="security-section">
+                <div class="section-header">
+                    <h2>보안 설정</h2>
+                </div>
+
+                <div class="settings-grid" id="securitySettings">
+                    <div class="setting-item">
+                        <label>최대 로그인 시도 횟수</label>
+                        <span id="maxLoginAttempts">-</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>로그인 시도 윈도우 (분)</label>
+                        <span id="loginAttemptWindow">-</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>계정 잠금 기간 (분)</label>
+                        <span id="accountLockDuration">-</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>IP별 최대 로그인 시도</label>
+                        <span id="maxIpLoginAttempts">-</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>IP 차단 기간 (분)</label>
+                        <span id="ipBlockDuration">-</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>영구 차단 임계값</label>
+                        <span id="permanentBlockThreshold">-</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>Brute Force 보호</label>
+                        <span id="bruteForceProtection">-</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>IP 차단 활성화</label>
+                        <span id="ipBlockingEnabled">-</span>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- IP 차단 추가 모달 -->
+        <div id="addIpModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>IP 차단</h2>
+                    <button onclick="closeModal('addIpModal')" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="addIpForm">
+                        <div class="form-group">
+                            <label for="ipAddress">IP 주소 *</label>
+                            <input type="text" id="ipAddress" required placeholder="192.168.1.100">
+                        </div>
+                        <div class="form-group">
+                            <label for="blockReason">차단 사유 (BlockReason)</label>
+                            <select id="blockReason" class="form-select">
+                                <option value="MANUAL" selected>MANUAL — 관리자 수동 차단</option>
+                                <option value="BRUTE_FORCE">BRUTE_FORCE — Brute Force 공격</option>
+                                <option value="SUSPICIOUS_ACTIVITY">SUSPICIOUS_ACTIVITY — 의심스러운 활동</option>
+                                <option value="BOT_DETECTED">BOT_DETECTED — 봇 감지</option>
+                                <option value="RATE_LIMIT_EXCEEDED">RATE_LIMIT_EXCEEDED — Rate Limit 초과</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="blockDescription">설명</label>
+                            <input type="text" id="blockDescription" placeholder="예: 반복적인 로그인 실패">
+                        </div>
+                        <div class="form-group">
+                            <label for="blockDuration">차단 기간 (분 — 영구 차단이면 무시)</label>
+                            <input type="number" id="blockDuration" value="60" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="permanentBlock"> 영구 차단
+                            </label>
+                        </div>
+                        <button type="submit" class="btn-primary">차단</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <h3>보안 관리 API</h3>
+            <ul>
+                <li><code>GET /admin/security/blocked-ips</code> - 차단된 IP 목록</li>
+                <li><code>POST /admin/security/blocked-ips</code> - IP 차단</li>
+                <li><code>DELETE /admin/security/blocked-ips/{id}</code> - IP 차단 해제 (id)</li>
+                <li><code>DELETE /admin/security/blocked-ips/ip/{ipAddress}</code> - IP 차단 해제 (주소)</li>
+                <li><code>GET /admin/security/blocked-ips/check/{ipAddress}</code> - 차단 여부 확인</li>
+                <li><code>GET /admin/security/accounts/status/{username}</code> - 계정 잠금 상태</li>
+                <li><code>POST /admin/security/accounts/unlock</code> - 계정 잠금 해제 (<code>username</code> 본문)</li>
+                <li><code>GET /admin/security/settings</code> - 보안 설정 조회</li>
+            </ul>
+        </div>
+    </main>
+</div>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<th:block th:replace="~{fragments/admin-layout :: admin-scripts}"></th:block>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadBlockedIps();
+        loadSecuritySettings();
+    });
+
+    // 오류 본문은 ErrorResponseModel(reason·resultMessage) — admin.js 의 네트워크 실패 형태(message)도 받아 준다
+    function errorText(response) {
+        return response.data?.reason ?? response.data?.resultMessage ?? response.data?.message ?? '';
+    }
+
+    // 인라인 onclick 에는 서버 값을 넣지 않는다 — HTML 이스케이프는 JS 문자열 문맥을 지켜 주지 못한다(브라우저가 엔티티를 먼저 복원한다).
+    // 행 식별자는 data-* 속성(HTML 속성 문맥, 이스케이프 안전)으로 넘기고 클릭은 위임 리스너가 받는다.
+    let loadedIps = [];
+
+    document.getElementById('blockedIpTableBody').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action="unblock"]');
+        if (!button) return;
+        const ip = loadedIps[Number(button.dataset.index)];
+        if (ip) unblockIp(ip.ipAddress);
+    });
+
+    async function loadBlockedIps() {
+        const tbody = document.getElementById('blockedIpTableBody');
+        try {
+            // 응답은 Page — 행은 content 에 있다
+            const response = await apiCall('/admin/security/blocked-ips', 'GET');
+            if (response.ok && response.data) {
+                const ips = response.data.content ?? [];
+                if (ips.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="empty">차단된 IP가 없습니다.</td></tr>';
+                } else {
+                    // 서버 값은 전부 escapeHtml 을 지난다(stored XSS 방지). 해제 버튼은 IP 문자열 대신 인덱스로 행을 찾는다.
+                    loadedIps = ips;
+                    tbody.innerHTML = ips.map((ip, index) => `
+                        <tr>
+                            <td><code>${escapeHtml(ip.ipAddress)}</code></td>
+                            <td>${escapeHtml(ip.blockReason)}${ip.description ? ' — ' + escapeHtml(ip.description) : ''}</td>
+                            <td>${escapeHtml(new Date(ip.blockedAt).toLocaleString('ko-KR'))}</td>
+                            <td>${ip.expiresAt ? escapeHtml(new Date(ip.expiresAt).toLocaleString('ko-KR')) : '-'}</td>
+                            <td>${ip.isPermanent ? '예' : '아니오'}</td>
+                            <td class="actions">
+                                <button type="button" data-action="unblock" data-index="${index}" class="btn-sm success">해제</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } else {
+                tbody.innerHTML = `<tr><td colspan="6" class="error">불러오기 실패 (HTTP ${response.status}) ${escapeHtml(errorText(response))}</td></tr>`;
+            }
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="6" class="error">오류: ${escapeHtml(error.message)}</td></tr>`;
+        }
+    }
+
+    async function loadAccountStatus() {
+        const username = document.getElementById('statusUsername').value.trim();
+        if (!username) {
+            showNotification('사용자명을 입력하세요.', 'error');
+            return;
+        }
+        try {
+            const response = await apiCall(`/admin/security/accounts/status/${encodeURIComponent(username)}`, 'GET');
+            if (response.ok && response.data) {
+                const status = response.data;
+                document.getElementById('statusUsernameValue').textContent = status.username;
+                document.getElementById('statusAttempts').textContent = `${status.currentAttempts} / ${status.maxAttempts}`;
+                document.getElementById('statusLocked').textContent = status.isLocked ? '예' : '아니오';
+                document.getElementById('statusRemaining').textContent = status.remainingLockTimeSeconds ?? '-';
+            } else {
+                showNotification(`조회 실패 (HTTP ${response.status}) ${errorText(response)}`, 'error');
+            }
+        } catch (e) {
+            showNotification('계정 상태 조회 실패', 'error');
+        }
+    }
+
+    async function loadSecuritySettings() {
+        try {
+            const response = await apiCall('/admin/security/settings', 'GET');
+            if (response.ok && response.data) {
+                const settings = response.data;
+                document.getElementById('maxLoginAttempts').textContent = settings.maxLoginAttempts;
+                document.getElementById('loginAttemptWindow').textContent = settings.loginAttemptWindowMinutes;
+                document.getElementById('accountLockDuration').textContent = settings.accountLockDurationMinutes;
+                document.getElementById('maxIpLoginAttempts').textContent = settings.maxIpLoginAttempts;
+                document.getElementById('ipBlockDuration').textContent = settings.ipBlockDurationMinutes;
+                document.getElementById('permanentBlockThreshold').textContent = settings.permanentBlockThreshold;
+                document.getElementById('bruteForceProtection').textContent = settings.enableBruteForceProtection ? '활성화' : '비활성화';
+                document.getElementById('ipBlockingEnabled').textContent = settings.enableIpBlocking ? '활성화' : '비활성화';
+            } else {
+                showNotification(`보안 설정 조회 실패 (HTTP ${response.status}) ${errorText(response)}`, 'error');
+            }
+        } catch (error) {
+            console.log('보안 설정 로드 실패');
+        }
+    }
+
+    document.getElementById('addIpForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const permanent = document.getElementById('permanentBlock').checked;
+
+        try {
+            // durationMinutes: null 이 영구 차단 — 0 은 즉시 만료된다
+            const response = await apiCall('/admin/security/blocked-ips', 'POST', {
+                ipAddress: document.getElementById('ipAddress').value,
+                reason: document.getElementById('blockReason').value,
+                description: document.getElementById('blockDescription').value || null,
+                durationMinutes: permanent ? null : parseInt(document.getElementById('blockDuration').value)
+            });
+
+            if (response.ok) {
+                closeModal('addIpModal');
+                loadBlockedIps();
+                showNotification('IP가 차단되었습니다.', 'success');
+                document.getElementById('addIpForm').reset();
+            } else {
+                showNotification(errorText(response) || 'IP 차단 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('IP 차단 실패', 'error');
+        }
+    });
+
+    async function unblockIp(ipAddress) {
+        if (!confirm(`${ipAddress}의 차단을 해제하시겠습니까?`)) return;
+
+        try {
+            const response = await apiCall(`/admin/security/blocked-ips/ip/${encodeURIComponent(ipAddress)}`, 'DELETE');
+            if (response.ok) {
+                loadBlockedIps();
+                showNotification('IP 차단이 해제되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || 'IP 차단 해제 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('IP 차단 해제 실패', 'error');
+        }
+    }
+
+    async function unlockAccount() {
+        const username = document.getElementById('statusUsername').value.trim();
+        if (!username) {
+            showNotification('사용자명을 입력하세요.', 'error');
+            return;
+        }
+        if (!confirm(`${username} 계정의 잠금을 해제하시겠습니까?`)) return;
+
+        try {
+            const response = await apiCall('/admin/security/accounts/unlock', 'POST', { username: username });
+            if (response.ok) {
+                loadAccountStatus();
+                showNotification('계정 잠금이 해제되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || '계정 잠금 해제 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('계정 잠금 해제 실패', 'error');
+        }
+    }
+
+    document.getElementById('permanentBlock').addEventListener('change', function() {
+        document.getElementById('blockDuration').disabled = this.checked;
+    });
+</script>
+</body>
+</html>

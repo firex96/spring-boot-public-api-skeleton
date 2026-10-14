@@ -1,0 +1,17 @@
+# azure 프로필 — 논리 키와 같은 이름의 Azure Key Vault 비밀을 읽는다 (예: 비밀 db-writer-password → ${db-writer-password}).
+#   AZURE_KEYVAULT_ENDPOINT : https://<vault-name>.vault.azure.net/
+#   자격증명 : DefaultAzureCredential (관리 ID, az login, AZURE_CLIENT_ID/SECRET/TENANT_ID 등)
+spring:
+  cloud:
+    azure:
+      keyvault:
+        secret:
+          property-source-enabled: true
+          property-sources[0]:
+            endpoint: ${AZURE_KEYVAULT_ENDPOINT}
+          retry:
+            mode: exponential
+            exponential:
+              max-retries: 4
+              base-delay: PT0.0801S
+              max-delay: PT9S

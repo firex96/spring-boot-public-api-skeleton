@@ -1,0 +1,29 @@
+# 로컬 개발·e2e 용 인프라. local 프로필(application-local.yml)의 기본값과 짝이다.
+#   docker compose up -d      # 기동
+#   docker compose down -v    # 데이터까지 삭제 — init 스크립트·DDL 을 바꾼 뒤에는 이걸로 다시 만든다
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      TZ: Asia/Seoul
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+      - ./src/main/resources/db/manual:/manual:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+volumes:
+  mysql-data:

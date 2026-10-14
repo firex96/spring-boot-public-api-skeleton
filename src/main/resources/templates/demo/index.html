@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/layout :: head('Public API Skeleton Demo')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+
+<main class="demo-main">
+    <div class="hero-section">
+        <h1>Public API Skeleton Demo</h1>
+        <p>Spring Boot 기반 Public API 스켈레톤 프로젝트의 데모 페이지입니다.</p>
+    </div>
+
+    <div class="demo-sections">
+        <!-- 인증 섹션 -->
+        <section class="demo-section">
+            <h2>인증 (Authentication)</h2>
+            <p>JWT 기반 인증 및 소셜 로그인 데모</p>
+            <div class="card-grid">
+                <a th:href="@{/demo/auth/login}" class="demo-card">
+                    <span class="card-icon">🔐</span>
+                    <h3>로그인</h3>
+                    <p>ID/PW 로그인 폼</p>
+                </a>
+                <a th:href="@{/demo/auth/social-login}" class="demo-card">
+                    <span class="card-icon">🌐</span>
+                    <h3>소셜 로그인</h3>
+                    <p>Google, Kakao, Naver</p>
+                </a>
+                <a th:href="@{/demo/auth/signup}" class="demo-card">
+                    <span class="card-icon">📝</span>
+                    <h3>회원가입</h3>
+                    <p>신규 회원 등록</p>
+                </a>
+                <a th:href="@{/demo/auth/forgot-password}" class="demo-card">
+                    <span class="card-icon">🔑</span>
+                    <h3>비밀번호 찾기</h3>
+                    <p>비밀번호 재설정 요청</p>
+                </a>
+                <a th:href="@{/demo/auth/reset-password}" class="demo-card">
+                    <span class="card-icon">🔄</span>
+                    <h3>비밀번호 재설정</h3>
+                    <p>새 비밀번호 설정</p>
+                </a>
+                <a th:href="@{/demo/auth/verify-email}" class="demo-card">
+                    <span class="card-icon">📧</span>
+                    <h3>이메일 인증</h3>
+                    <p>이메일 인증 처리</p>
+                </a>
+                <a th:href="@{/demo/auth/oauth2-consent}" class="demo-card">
+                    <span class="card-icon">✅</span>
+                    <h3>OAuth2 동의</h3>
+                    <p>권한 동의 화면</p>
+                </a>
+                <a th:href="@{/demo/auth/callback}" class="demo-card">
+                    <span class="card-icon">📨</span>
+                    <h3>콜백 페이지</h3>
+                    <p>소셜 로그인 콜백</p>
+                </a>
+            </div>
+        </section>
+
+        <!-- 관리자 섹션 -->
+        <section class="demo-section">
+            <h2>관리자 (Admin)</h2>
+            <p>사용자, 그룹, 권한 등 관리 기능 데모</p>
+            <div class="card-grid">
+                <a th:href="@{/demo/admin}" class="demo-card admin">
+                    <span class="card-icon">📊</span>
+                    <h3>대시보드</h3>
+                    <p>관리자 메인 화면</p>
+                </a>
+                <a th:href="@{/demo/admin/users}" class="demo-card admin">
+                    <span class="card-icon">👥</span>
+                    <h3>사용자 관리</h3>
+                    <p>사용자 그룹/권한 할당</p>
+                </a>
+                <a th:href="@{/demo/admin/groups}" class="demo-card admin">
+                    <span class="card-icon">📁</span>
+                    <h3>그룹 관리</h3>
+                    <p>그룹 CRUD</p>
+                </a>
+                <a th:href="@{/demo/admin/permissions}" class="demo-card admin">
+                    <span class="card-icon">🔐</span>
+                    <h3>권한 관리</h3>
+                    <p>권한 CRUD</p>
+                </a>
+                <a th:href="@{/demo/admin/audit-logs}" class="demo-card admin">
+                    <span class="card-icon">📋</span>
+                    <h3>감사 로그</h3>
+                    <p>로그 조회/검색</p>
+                </a>
+                <a th:href="@{/demo/admin/oauth2-clients}" class="demo-card admin">
+                    <span class="card-icon">🔗</span>
+                    <h3>OAuth2 클라이언트</h3>
+                    <p>클라이언트 관리</p>
+                </a>
+                <a th:href="@{/demo/admin/security}" class="demo-card admin">
+                    <span class="card-icon">🛡️</span>
+                    <h3>보안 관리</h3>
+                    <p>IP 차단, 계정 잠금</p>
+                </a>
+            </div>
+        </section>
+
+        <!-- API 문서 -->
+        <section class="demo-section">
+            <h2>API 문서</h2>
+            <p>Swagger UI를 통한 API 문서 확인</p>
+            <div class="card-grid">
+                <a href="/swagger-ui.html" target="_blank" class="demo-card api">
+                    <span class="card-icon">📖</span>
+                    <h3>Swagger UI</h3>
+                    <p>API 문서 및 테스트</p>
+                </a>
+            </div>
+        </section>
+    </div>
+</main>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+</body>
+</html>

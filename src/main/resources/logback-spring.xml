@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  단일 logback 설정. 프로필 조합(예: aws,loki)에서도 깨지지 않도록 <springProfile> 로 분기한다.
+  - local         : 컬러 콘솔, 애플리케이션 패키지 DEBUG
+  - 그 외(기본)   : 콘솔 + 파일(./logs), 애플리케이션 패키지 INFO
+  - loki (조합)   : Loki 로도 보낸다. LOKI_URL 로 주소를 받는다
+-->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+  <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="public-api-skeleton"/>
+  <property name="LOGS" value="${LOGS:-./logs}"/>
+
+  <springProfile name="local">
+    <property name="CONSOLE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId}] %magenta([%thread]) %highlight([%-3level]) %logger{5} - %msg %n"/>
+  </springProfile>
+  <springProfile name="!local">
+    <property name="CONSOLE_PATTERN" value="%d %p %C{1} [%t] [%X{traceId}] %m%n"/>
+  </springProfile>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>${CONSOLE_PATTERN}</pattern>
+    </encoder>
+  </appender>
+
+  <springProfile name="!local">
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+      <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+        <Pattern>%d %p %C{1} [%t] [%X{traceId}] %m%n</Pattern>
+      </encoder>
+      <file>${LOGS}/application.log</file>
+      <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+        <fileNamePattern>${LOGS}/archived/application-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+        <maxFileSize>100MB</maxFileSize>
+        <maxHistory>30</maxHistory>
+      </rollingPolicy>
+    </appender>
+  </springProfile>
+
+  <springProfile name="loki">
+    <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+      <http>
+        <url>${LOKI_URL:-http://localhost:3100/loki/api/v1/push}</url>
+      </http>
+      <format>
+        <label>
+          <pattern>
+            app = ${APP_NAME},
+            host = ${HOSTNAME}
+          </pattern>
+          <structuredMetadataPattern>
+            level = %level,
+            thread = %thread,
+            class = %logger,
+            traceId = %mdc{traceId:-none}
+          </structuredMetadataPattern>
+        </label>
+        <message>
+          <pattern>%-5level %logger{20} %msg %ex</pattern>
+        </message>
+      </format>
+    </appender>
+  </springProfile>
+
+  <springProfile name="local">
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+    <logger name="com.rex.api.pub.skeleton" level="DEBUG"/>
+    <logger name="net.ttddyy.dsproxy.listener.logging.SLF4JQueryLoggingListener" level="DEBUG"/>
+  </springProfile>
+
+  <springProfile name="!local">
+    <root level="WARN">
+      <appender-ref ref="CONSOLE"/>
+      <appender-ref ref="FILE"/>
+    </root>
+    <logger name="com.rex.api.pub.skeleton" level="INFO"/>
+  </springProfile>
+
+  <springProfile name="loki">
+    <root>
+      <appender-ref ref="LOKI"/>
+    </root>
+  </springProfile>
+</configuration>

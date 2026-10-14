@@ -1,0 +1,137 @@
+### Spring ###
+# https://github.com/spring-projects/spring-framework/blob/main/.gitignore
+
+# Miscellaneous
+*.java.hsp
+*.sonarj
+*.sw*
+.DS_Store
+build.sh
+integration-repo
+ivy-cache
+argfile*
+activemq-data/
+classes/
+
+# Log files
+jxl.log
+jmx.log
+derby.log
+
+# Gradle artifacts
+.gradle
+.gradletasknamecache
+/build
+buildSrc/build
+/spring-*/build
+/framework-*/build
+/integration-tests/build
+/src/asciidoc/build
+spring-test/test-output/
+
+# Maven artifacts
+pom.xml
+/target/
+
+# Eclipse artifacts, including WTP generated manifests
+bin
+.classpath
+.project
+.settings
+.springBeans
+spring-*/src/main/java/META-INF/MANIFEST.MF
+
+# IDEA artifacts and output dirs
+*.iml
+*.ipr
+*.iws
+.idea
+out
+test-output
+atlassian-ide-plugin.xml
+
+# VS Code
+.vscode/
+
+cached-antora-playbook.yml
+
+node_modules
+/.kotlin/
+
+### Kotlin ###
+# https://github.com/JetBrains/kotlin/blob/master/.gitignore
+.DS_Store
+.idea/shelf
+/confluence/target
+/dependencies/repo
+/android.tests.dependencies
+/dependencies/android.tests.dependencies
+/dist
+/local
+/gh-pages
+/ideaSDK
+/clionSDK
+/android-studio/sdk
+out/
+/tmp
+/intellij
+workspace.xml
+*.versionsBackup
+/idea/testData/debugger/tinyApp/classes*
+/jps-plugin/testData/kannotator
+/js/js.translator/testData/out/
+/js/js.translator/testData/out-min/
+/js/js.translator/testData/out-pir/
+.gradle/
+build/
+!**/src/**/build
+!**/test/**/build
+!**/testData/**/*.iml
+.idea/artifacts
+.idea/remote-targets.xml
+.idea/libraries/Gradle*.xml
+.idea/libraries/Maven*.xml
+.idea/modules
+.idea/runConfigurations/JPS_*.xml
+.idea/runConfigurations/_JPS_*.xml
+.idea/runConfigurations/PILL_*.xml
+.idea/runConfigurations/_FP_*.xml
+.idea/runConfigurations/_MT_*.xml
+.idea/libraries
+.idea/modules.xml
+.idea/gradle.xml
+.idea/compiler.xml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/.name
+.idea/jarRepositories.xml
+.idea/csv-plugin.xml
+.idea/libraries-with-intellij-classes.xml
+.idea/misc.xml
+.idea/protoeditor.xml
+.idea/uiDesigner.xml
+node_modules/
+.rpt2_cache/
+local.properties
+buildSrcTmp/
+distTmp/
+outTmp/
+/test.output
+/kotlin-native/dist
+kotlin-ide/
+.kotlin/
+.teamcity/
+*.png
+build-coverage-run.log
+
+# 인증서·개인키는 저장소에 두지 않는다
+**/cert/
+*.key
+*.pfx
+
+# 로컬 실행 산출물·비밀
+logs/
+.env
+
+# Claude Code — 공유 규칙(.claude/rules)만 추적하고 개인 설정은 무시한다
+.claude/*
+!.claude/rules/

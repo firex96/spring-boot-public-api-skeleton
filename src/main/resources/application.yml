@@ -1,0 +1,237 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: public-api-skeleton
+
+  # Thymeleaf 설정
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    encoding: UTF-8
+    cache: false  # 개발 환경에서 캐시 비활성화
+
+  threads:
+    virtual:
+      enabled: true
+
+  # 스키마 2개(main @Primary 업무 예제, auth 인증·인가 — Flyway). 호스트·계정은 논리 키로 받는다 — README 「설정과 비밀값」 참고.
+  # 풀 크기는 환경변수로 덮는다: SPRING_DATASOURCE_MAIN_READ_HIKARI_MAXIMUMPOOLSIZE=20
+  datasource:
+    main:
+      read:
+        url: jdbc:mysql://${db-read-host:${db-host}}:${db-port:3306}/skeleton_main
+        username: ${db-reader-username}
+        password: ${db-reader-password}
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        type: com.zaxxer.hikari.HikariDataSource
+        hikari:
+          poolName: publicApiSkeletonMainReadPool
+          auto-commit: false
+          max-lifetime: 30000
+          maximum-pool-size: 10
+      write:
+        url: jdbc:mysql://${db-host}:${db-port:3306}/skeleton_main
+        username: ${db-writer-username}
+        password: ${db-writer-password}
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        type: com.zaxxer.hikari.HikariDataSource
+        hikari:
+          poolName: publicApiSkeletonMainWritePool
+          auto-commit: false
+          max-lifetime: 30000
+          maximum-pool-size: 5
+    auth:
+      read:
+        url: jdbc:mysql://${db-read-host:${db-host}}:${db-port:3306}/skeleton_auth
+        username: ${db-reader-username}
+        password: ${db-reader-password}
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        type: com.zaxxer.hikari.HikariDataSource
+        hikari:
+          poolName: publicApiSkeletonAuthReadPool
+          auto-commit: false
+          max-lifetime: 30000
+          maximum-pool-size: 10
+      write:
+        url: jdbc:mysql://${db-host}:${db-port:3306}/skeleton_auth
+        username: ${db-writer-username}
+        password: ${db-writer-password}
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        type: com.zaxxer.hikari.HikariDataSource
+        hikari:
+          poolName: publicApiSkeletonAuthWritePool
+          auto-commit: false
+          max-lifetime: 30000
+          maximum-pool-size: 5
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    show-sql: false
+    properties:
+      hibernate:
+        show_sql: false
+        format_sql: false
+
+  flyway:
+    enabled: false # local 프로필이 켠다. 운영은 배포 파이프라인이 켜거나 SPRING_FLYWAY_ENABLED=true 로 준다
+
+  data:
+    redis:
+      host: ${redis-host}
+      port: ${redis-port:6379}
+      password: ${redis-password:}
+      ssl:
+        enabled: ${redis-ssl-enabled:false}
+
+  cache:
+    redis:
+      time-to-live: "10m"
+
+  # 비밀값 출처 — 클라우드 연동은 기본으로 꺼 두고 aws·azure·gcp 프로필이 자기 것만 켠다
+  cloud:
+    aws:
+      secretsmanager:
+        enabled: false
+    azure:
+      keyvault:
+        secret:
+          property-source-enabled: false
+    gcp:
+      core:
+        enabled: false
+      secretmanager:
+        enabled: false
+
+# Flyway 마이그레이션 locations 설정
+# 프로파일별로 override하여 test 데이터 포함 여부 결정
+# - prod: ddl + dml/mandatory만 포함 (기본값)
+# - local/dev: ddl + dml/mandatory + dml/test 포함
+flyway:
+  auth:
+    locations: # locations 키 없이 목록만 두면 FlywayProperties.auth.locations 에 바인딩되지 않아 Flyway 가 0 migrations 로 지나간다 (검출: FlywayPropertiesBindingTest)
+      - classpath:db/migration/auth/ddl
+      - classpath:db/migration/auth/dml/mandatory
+
+# JWT 설정 — 서명키는 논리 키 jwt-secret(32자 이상). 기본값을 두지 않는다 (설정값·비밀값 규약: .claude/rules/conventions.md)
+jwt:
+  secret: ${jwt-secret}
+  issuer: public-api-skeleton
+  audience: skeleton-apps
+  access-token-expiration: 3600      # 1시간 (초)
+  refresh-token-expiration: 604800   # 7일 (초)
+
+# 보안 설정
+security:
+  login-protection:
+    max-login-attempts: 5
+    login-attempt-window-minutes: 15
+    account-lock-duration-minutes: 30
+    max-ip-login-attempts: 10
+    ip-block-duration-minutes: 60
+    permanent-block-threshold: 50
+    suspicious-activity-threshold: 20
+    enable-brute-force-protection: true
+    enable-ip-blocking: true
+
+# OpenID Connect 설정 — issuer 는 이 서비스의 외부 주소(논리 키 oidc-issuer)
+oidc:
+  issuer: ${oidc-issuer}
+  key-id: public-api-skeleton
+  id-token-expiration: 3600  # 1시간 (초)
+  # RS256 을 쓰려면 논리 키 oidc-rsa-private-key · oidc-rsa-public-key 를 비밀 저장소에 등록하고 아래 두 줄을 켠다.
+  # 운영에서 RSA 키 없이 뜨지 않게 하려면 require-rsa-key: true
+  # rsa-private-key: ${oidc-rsa-private-key}
+  # rsa-public-key: ${oidc-rsa-public-key}
+
+# OAuth2 소셜 로그인 — provider 블록이 없으면 비활성(OAuth2Properties 는 nullable). 켤 provider 만 주석을 푼다.
+oauth2:
+  redirect-base-url: ${oauth2-redirect-base-url}
+  # naver:
+  #   client-id: ${naver-client-id}
+  #   client-secret: ${naver-client-secret}
+  #   scope: [name, email, profile_image]
+  # kakao:
+  #   client-id: ${kakao-client-id}
+  #   client-secret: ${kakao-client-secret}
+  #   scope: [profile_nickname, profile_image, account_email]
+  # google:
+  #   client-id: ${google-client-id}
+  #   client-secret: ${google-client-secret}
+  #   scope: [openid, email, profile]
+
+springdoc:
+  show-actuator: true
+  enable-kotlin: true
+  writer-with-default-pretty-printer: true
+  writer-with-order-by-keys: true
+
+  api-docs:
+    enabled: true
+    resolve-schema-properties: true
+
+  swagger-ui:
+    path: /swagger-ui.html
+    groups-order: ASC
+    doc-expansion: none
+    tags-sorter: alpha
+    operationsSorter: method
+    disable-swagger-default-url: false
+    display-request-duration: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+decorator:
+  datasource:
+    datasource-proxy:
+      query:
+        log-level: debug
+      slow-query:
+        log-level: warn
+      format-sql: true
+      count-query: true
+
+app:
+  flyway:
+    mysql:
+      # Flyway(skeleton_auth DDL) 전용 계정 — 런타임 풀은 reader/writer 를 쓴다
+      username: ${db-admin-username}
+      password: ${db-admin-password}
+  audit:
+    # X-User-Id 헤더를 감사 주체로 신뢰할지. 기본값 false.
+    # 헤더는 외부 입력이라 그대로 신뢰하면 호출자가 다른 사용자의 ID 로
+    # 감사 기록을 위조할 수 있다. 게이트웨이·프록시가 인증 결과로 이 헤더를
+    # 덮어쓰고 외부에서 들어온 같은 이름의 헤더를 제거하는 배치에서만 켠다.
+    trust-user-header: false
+  client:
+    properties:
+      http-client:
+        connection-timeout: 5000
+      web-client:
+        memory-size: 2097152
+      connection:
+        max-connections: 30
+        max-idle-time: 5
+        max-life-time: 5
+        pending-acquire-timeout: 5
+        pending-acquire-max-count: 60
+        evict-in-background: 5
+    destinations:
+      core:
+        url: ${core-api-url}
+  redis:
+    # 관리형 Redis 클러스터(단일 엔드포인트)면 true — RedisConfiguration 참고. 기본은 Boot 자동 구성(standalone)
+    managed-cluster: ${redis-managed-cluster:false}

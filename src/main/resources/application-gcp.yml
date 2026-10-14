@@ -1,0 +1,25 @@
+# gcp 프로필 — 논리 키를 GCP Secret Manager 비밀(같은 이름)에서 읽는다.
+#   GCP_PROJECT_ID : 비밀이 있는 프로젝트
+#   자격증명 : Application Default Credentials (워크로드 ID, GOOGLE_APPLICATION_CREDENTIALS 등)
+# Secret Manager 는 이름으로 일괄 노출하지 않으므로 비밀 논리 키마다 아래처럼 대응시킨다 — 키를 추가하면 여기도 추가한다
+# (SecretKeyCoverageTest 가 누락을 잡는다). 호스트처럼 비밀이 아닌 값은 환경변수로 준다.
+# RS256(oidc-rsa-*)·소셜 로그인(*-client-secret)을 켜면 해당 대응 줄도 추가한다.
+spring:
+  config:
+    import: sm@
+  cloud:
+    gcp:
+      project-id: ${GCP_PROJECT_ID}
+      core:
+        enabled: true
+      secretmanager:
+        enabled: true
+
+db-reader-username: ${sm@db-reader-username}
+db-reader-password: ${sm@db-reader-password}
+db-writer-username: ${sm@db-writer-username}
+db-writer-password: ${sm@db-writer-password}
+db-admin-username: ${sm@db-admin-username}
+db-admin-password: ${sm@db-admin-password}
+redis-password: ${sm@redis-password}
+jwt-secret: ${sm@jwt-secret}

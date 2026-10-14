@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/admin-layout :: head('OAuth2 클라이언트 관리 - Demo')}"></head>
+<body class="admin-body">
+<aside th:replace="~{fragments/admin-layout :: sidebar}"></aside>
+
+<div class="admin-content">
+    <header th:replace="~{fragments/admin-layout :: admin-header}"></header>
+
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>OAuth2 클라이언트 관리</h1>
+            <button onclick="openModal('createClientModal')" class="btn-primary">+ 새 클라이언트</button>
+        </div>
+
+        <!-- 클라이언트 목록 -->
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Client ID</th>
+                        <th>이름</th>
+                        <th>Redirect URIs</th>
+                        <th>Scopes</th>
+                        <th>상태</th>
+                        <th>액션</th>
+                    </tr>
+                </thead>
+                <tbody id="clientTableBody">
+                    <tr>
+                        <td colspan="6" class="loading">클라이언트 목록을 불러오는 중...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 클라이언트 생성 모달 -->
+        <div id="createClientModal" class="modal">
+            <div class="modal-content modal-lg">
+                <div class="modal-header">
+                    <h2>새 OAuth2 클라이언트 등록</h2>
+                    <button onclick="closeModal('createClientModal')" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="createClientForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="clientName">클라이언트 이름 *</label>
+                                <input type="text" id="clientName" required placeholder="예: My Application">
+                            </div>
+                            <div class="form-group">
+                                <label for="clientDescription">설명</label>
+                                <input type="text" id="clientDescription" placeholder="선택 — 500자 이하">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="checkbox-group">
+                                <label><input type="checkbox" id="requirePkce"> PKCE 필수 (requirePkce)</label>
+                                <label><input type="checkbox" id="isFirstParty"> 1st-party 클라이언트 (isFirstParty)</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="redirectUris">Redirect URIs * (줄바꿈으로 구분)</label>
+                            <textarea id="redirectUris" required placeholder="https://example.com/callback"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Scopes</label>
+                            <div class="checkbox-group">
+                                <label><input type="checkbox" name="scopes" value="openid" checked> openid</label>
+                                <label><input type="checkbox" name="scopes" value="email" checked> email</label>
+                                <label><input type="checkbox" name="scopes" value="profile" checked> profile</label>
+                                <label><input type="checkbox" name="scopes" value="offline_access"> offline_access</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Grant Types</label>
+                            <div class="checkbox-group">
+                                <label><input type="checkbox" name="grantTypes" value="authorization_code" checked> Authorization Code</label>
+                                <label><input type="checkbox" name="grantTypes" value="refresh_token" checked> Refresh Token</label>
+                                <label><input type="checkbox" name="grantTypes" value="client_credentials"> Client Credentials</label>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-primary">등록</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 클라이언트 시크릿 표시 모달 -->
+        <div id="secretModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>클라이언트 시크릿</h2>
+                    <button onclick="closeModal('secretModal')" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="warning-box">
+                        <p>이 시크릿은 지금만 표시됩니다. 안전한 곳에 복사해 두세요!</p>
+                    </div>
+                    <div class="secret-display">
+                        <label>Client ID</label>
+                        <div class="secret-box">
+                            <code id="displayClientId"></code>
+                            <button onclick="copyToClipboard('displayClientId')" class="copy-btn">복사</button>
+                        </div>
+                    </div>
+                    <div class="secret-display">
+                        <label>Client Secret</label>
+                        <div class="secret-box">
+                            <code id="displayClientSecret"></code>
+                            <button onclick="copyToClipboard('displayClientSecret')" class="copy-btn">복사</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 클라이언트 수정 모달 -->
+        <div id="editClientModal" class="modal">
+            <div class="modal-content modal-lg">
+                <div class="modal-header">
+                    <h2>클라이언트 수정</h2>
+                    <button onclick="closeModal('editClientModal')" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="editClientForm">
+                        <input type="hidden" id="editClientId">
+                        <div class="form-group">
+                            <label for="editClientName">클라이언트 이름 *</label>
+                            <input type="text" id="editClientName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="editRedirectUris">Redirect URIs * (줄바꿈으로 구분)</label>
+                            <textarea id="editRedirectUris" required></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Scopes</label>
+                            <div class="checkbox-group" id="editScopes"></div>
+                        </div>
+                        <button type="submit" class="btn-primary">저장</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <h3>OAuth2 클라이언트 API</h3>
+            <ul>
+                <li><code>GET /admin/oauth2/clients</code> - 클라이언트 목록</li>
+                <li><code>POST /admin/oauth2/clients</code> - 클라이언트 등록</li>
+                <li><code>PUT /admin/oauth2/clients/{id}</code> - 클라이언트 수정</li>
+                <li><code>DELETE /admin/oauth2/clients/{id}</code> - 클라이언트 삭제</li>
+                <li><code>POST /admin/oauth2/clients/{id}/secret</code> - 시크릿 재생성</li>
+                <li><code>POST /admin/oauth2/clients/{id}/deactivate</code> - 비활성화 (재활성화 API 는 없다 — 새 클라이언트를 등록한다)</li>
+                <li><code>GET /admin/oauth2/clients/{id}</code> - 클라이언트 상세</li>
+                <li><code>GET /admin/oauth2/clients/active</code> - 활성 클라이언트만</li>
+            </ul>
+        </div>
+    </main>
+</div>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<th:block th:replace="~{fragments/admin-layout :: admin-scripts}"></th:block>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadClients();
+    });
+
+    // 오류 본문은 ErrorResponseModel(reason·resultMessage) — admin.js 의 네트워크 실패 형태(message)도 받아 준다
+    let loadedClients = [];
+
+    // 인라인 onclick 에는 서버 값을 넣지 않는다 — HTML 이스케이프는 JS 문자열 문맥을 지켜 주지 못한다(브라우저가 엔티티를 먼저 복원한다).
+    // 행 식별자는 data-* 속성(HTML 속성 문맥, 이스케이프 안전)으로 넘기고 클릭은 위임 리스너가 받는다.
+    document.getElementById('clientTableBody').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const client = loadedClients[Number(button.dataset.index)];
+        if (!client) return;
+        if (button.dataset.action === 'edit') openEditModal(client);
+        if (button.dataset.action === 'secret') regenerateSecret(client.id);
+        if (button.dataset.action === 'deactivate') deactivateClient(client.id);
+        if (button.dataset.action === 'delete') deleteClient(client.id);
+    });
+
+    function errorText(response) {
+        return response.data?.reason ?? response.data?.resultMessage ?? response.data?.message ?? '';
+    }
+
+    async function loadClients() {
+        const tbody = document.getElementById('clientTableBody');
+        try {
+            const response = await apiCall('/admin/oauth2/clients', 'GET');
+            if (response.ok && response.data) {
+                if (response.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="empty">등록된 클라이언트가 없습니다.</td></tr>';
+                } else {
+                    // 서버 값은 전부 escapeHtml 을 지난다(stored XSS 방지). 수정 모달은 객체를 HTML 에 직렬화하지 않고 인덱스로 찾는다.
+                    loadedClients = response.data;
+                    tbody.innerHTML = response.data.map((client, index) => `
+                        <tr>
+                            <td><code>${escapeHtml(client.clientId)}</code></td>
+                            <td>${escapeHtml(client.clientName)}</td>
+                            <td class="truncate">${escapeHtml((client.redirectUris || []).join(', '))}</td>
+                            <td>${(client.scopes || []).map(s => `<span class="tag">${escapeHtml(s)}</span>`).join(' ')}</td>
+                            <td><span class="status ${client.isActive ? 'active' : 'inactive'}">${client.isActive ? '활성' : '비활성'}</span></td>
+                            <td class="actions">
+                                <button type="button" data-action="edit" data-index="${index}" class="btn-sm">수정</button>
+                                <button type="button" data-action="secret" data-index="${index}" class="btn-sm">시크릿 재생성</button>
+                                ${client.isActive ? `<button type="button" data-action="deactivate" data-index="${index}" class="btn-sm warning">비활성화</button>` : ''}
+                                <button type="button" data-action="delete" data-index="${index}" class="btn-sm danger">삭제</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } else {
+                tbody.innerHTML = `<tr><td colspan="6" class="error">불러오기 실패 (HTTP ${response.status}) ${escapeHtml(errorText(response))}</td></tr>`;
+            }
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="6" class="error">오류: ${escapeHtml(error.message)}</td></tr>`;
+        }
+    }
+
+    document.getElementById('createClientForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const scopes = Array.from(document.querySelectorAll('input[name="scopes"]:checked')).map(cb => cb.value);
+        const grantTypes = Array.from(document.querySelectorAll('input[name="grantTypes"]:checked')).map(cb => cb.value);
+        const redirectUris = document.getElementById('redirectUris').value.split('\n').filter(uri => uri.trim());
+
+        try {
+            const response = await apiCall('/admin/oauth2/clients', 'POST', {
+                clientName: document.getElementById('clientName').value,
+                description: document.getElementById('clientDescription').value || null,
+                redirectUris: redirectUris,
+                scopes: scopes,
+                grantTypes: grantTypes,
+                requirePkce: document.getElementById('requirePkce').checked,
+                isFirstParty: document.getElementById('isFirstParty').checked
+            });
+
+            if (response.ok && response.data) {
+                closeModal('createClientModal');
+                document.getElementById('displayClientId').textContent = response.data.clientId;
+                document.getElementById('displayClientSecret').textContent = response.data.clientSecret;
+                openModal('secretModal');
+                loadClients();
+            } else {
+                showNotification(errorText(response) || '등록 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('클라이언트 등록 실패', 'error');
+        }
+    });
+
+    async function regenerateSecret(clientId) {
+        if (!confirm('시크릿을 재생성하면 기존 시크릿은 더 이상 사용할 수 없습니다. 계속하시겠습니까?')) return;
+
+        try {
+            const response = await apiCall(`/admin/oauth2/clients/${clientId}/secret`, 'POST');
+            if (response.ok && response.data) {
+                document.getElementById('displayClientId').textContent = response.data.clientId;
+                document.getElementById('displayClientSecret').textContent = response.data.clientSecret;
+                openModal('secretModal');
+            }
+        } catch (e) {
+            showNotification('시크릿 재생성 실패', 'error');
+        }
+    }
+
+    async function deactivateClient(clientId) {
+        if (!confirm('클라이언트를 비활성화하시겠습니까? 재활성화 API 는 없습니다.')) return;
+        try {
+            const response = await apiCall(`/admin/oauth2/clients/${clientId}/deactivate`, 'POST');
+            if (response.ok) {
+                loadClients();
+                showNotification('클라이언트가 비활성화되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || '비활성화 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('상태 변경 실패', 'error');
+        }
+    }
+
+    async function deleteClient(clientId) {
+        if (!confirm('클라이언트를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+
+        try {
+            const response = await apiCall(`/admin/oauth2/clients/${clientId}`, 'DELETE');
+            if (response.ok) {
+                loadClients();
+                showNotification('클라이언트가 삭제되었습니다.', 'success');
+            }
+        } catch (e) {
+            showNotification('클라이언트 삭제 실패', 'error');
+        }
+    }
+
+    function openEditModal(client) {
+        document.getElementById('editClientId').value = client.id;
+        document.getElementById('editClientName').value = client.clientName;
+        document.getElementById('editRedirectUris').value = (client.redirectUris || []).join('\n');
+
+        const scopesHtml = ['openid', 'email', 'profile', 'offline_access'].map(scope => {
+            const checked = (client.scopes || []).includes(scope) ? 'checked' : '';
+            return `<label><input type="checkbox" name="editScopes" value="${escapeHtml(scope)}" ${checked}> ${escapeHtml(scope)}</label>`;
+        }).join('');
+        document.getElementById('editScopes').innerHTML = scopesHtml;
+
+        openModal('editClientModal');
+    }
+
+    document.getElementById('editClientForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const clientId = document.getElementById('editClientId').value;
+        const scopes = Array.from(document.querySelectorAll('input[name="editScopes"]:checked')).map(cb => cb.value);
+        const redirectUris = document.getElementById('editRedirectUris').value.split('\n').filter(uri => uri.trim());
+
+        try {
+            const response = await apiCall(`/admin/oauth2/clients/${clientId}`, 'PUT', {
+                clientName: document.getElementById('editClientName').value,
+                redirectUris: redirectUris,
+                scopes: scopes
+            });
+            if (response.ok) {
+                closeModal('editClientModal');
+                loadClients();
+                showNotification('클라이언트가 수정되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || '수정 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('클라이언트 수정 실패', 'error');
+        }
+    });
+
+    function copyToClipboard(elementId) {
+        const text = document.getElementById(elementId).textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            showNotification('클립보드에 복사되었습니다.', 'success');
+        });
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/admin-layout :: head('사용자 관리 - Demo')}"></head>
+<body class="admin-body">
+<aside th:replace="~{fragments/admin-layout :: sidebar}"></aside>
+
+<div class="admin-content">
+    <header th:replace="~{fragments/admin-layout :: admin-header}"></header>
+
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>사용자 관리</h1>
+            <p>사용자 그룹 할당과 권한 확인 — 사용자 목록 API 는 없으므로 사용자 ID 로 조회한다</p>
+        </div>
+
+        <!-- 사용자 선택 -->
+        <div class="filter-bar">
+            <input type="number" id="targetUserId" min="1" placeholder="사용자 ID" class="search-input">
+            <button id="loadUserAccessButton" onclick="loadUserAccess()" class="btn-primary">조회</button>
+        </div>
+
+        <div class="dashboard-grid">
+            <section class="dashboard-section">
+                <h2>그룹</h2>
+                <div class="form-group">
+                    <label>현재 그룹 (클릭하면 제거)</label>
+                    <div id="currentGroups" class="tag-list"><span class="empty">사용자 ID 를 입력해 조회하세요.</span></div>
+                </div>
+                <div class="form-group">
+                    <label for="groupSelect">그룹 추가</label>
+                    <div class="input-group">
+                        <select id="groupSelect" class="form-select">
+                            <option value="">그룹 선택...</option>
+                        </select>
+                        <button onclick="addGroup()" class="btn-secondary">추가</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="dashboard-section">
+                <h2>권한</h2>
+                <div class="form-group">
+                    <label>유효 권한 (그룹에서 상속 — 읽기 전용)</label>
+                    <div id="currentPermissions" class="tag-list"><span class="empty">사용자 ID 를 입력해 조회하세요.</span></div>
+                </div>
+                <div class="form-group">
+                    <label for="permissionCodeInput">권한 확인</label>
+                    <div class="input-group">
+                        <input type="text" id="permissionCodeInput" placeholder="예: user:read" class="search-input">
+                        <button onclick="checkPermission()" class="btn-secondary">확인</button>
+                    </div>
+                    <p id="permissionCheckResult" class="empty"></p>
+                </div>
+            </section>
+        </div>
+
+        <div class="info-box">
+            <h3>사용자 관리 API</h3>
+            <ul>
+                <li><code>GET /admin/users/{userId}/groups</code> - 사용자 그룹 조회</li>
+                <li><code>GET /admin/users/{userId}/groups/detail</code> - 배정 시각·만료가 든 그룹 매핑</li>
+                <li><code>POST /admin/users/{userId}/groups</code> - 그룹 할당 (<code>roleIds</code> 목록)</li>
+                <li><code>PUT /admin/users/{userId}/groups</code> - 그룹 목록을 통째로 교체</li>
+                <li><code>DELETE /admin/users/{userId}/groups/{groupId}</code> - 그룹 제거</li>
+                <li><code>GET /admin/users/{userId}/permissions</code> - 유효 권한 조회 (그룹 상속)</li>
+                <li><code>GET /admin/users/{userId}/permissions/{permissionCode}/check</code> - 권한 보유 확인</li>
+            </ul>
+        </div>
+    </main>
+</div>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<th:block th:replace="~{fragments/admin-layout :: admin-scripts}"></th:block>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadGroups();
+    });
+
+    // 오류 본문은 ErrorResponseModel(reason·resultMessage) — admin.js 의 네트워크 실패 형태(message)도 받아 준다
+    function errorText(response) {
+        return response.data?.reason ?? response.data?.resultMessage ?? response.data?.message ?? '';
+    }
+
+    // 인라인 onclick 에는 서버 값을 넣지 않는다 — HTML 이스케이프는 JS 문자열 문맥을 지켜 주지 못한다(브라우저가 엔티티를 먼저 복원한다).
+    // 행 식별자는 data-* 속성(HTML 속성 문맥, 이스케이프 안전)으로 넘기고 클릭은 위임 리스너가 받는다.
+    document.getElementById('currentGroups').addEventListener('click', function (event) {
+        const tag = event.target.closest('span[data-group-id]');
+        if (!tag) return;
+        removeGroup(Number(tag.dataset.userId), Number(tag.dataset.groupId));
+    });
+
+    function targetUserId() {
+        const value = document.getElementById('targetUserId').value;
+        if (!value) {
+            showNotification('사용자 ID 를 입력하세요.', 'error');
+            return null;
+        }
+        return parseInt(value);
+    }
+
+    async function loadGroups() {
+        try {
+            const response = await apiCall('/admin/groups', 'GET');
+            const select = document.getElementById('groupSelect');
+            if (response.ok && response.data) {
+                response.data.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.id;
+                    option.textContent = `${group.code} — ${group.name}`;
+                    select.appendChild(option);
+                });
+            }
+        } catch (e) {
+            console.log('그룹 로드 실패');
+        }
+    }
+
+    function loadUserAccess() {
+        const userId = targetUserId();
+        if (userId === null) return;
+        loadUserGroups(userId);
+        loadUserPermissions(userId);
+    }
+
+    async function loadUserGroups(userId) {
+        const container = document.getElementById('currentGroups');
+        try {
+            const response = await apiCall(`/admin/users/${userId}/groups`, 'GET');
+            if (response.ok && response.data) {
+                container.innerHTML = response.data.map(g =>
+                    `<span class="tag removable" data-user-id="${userId}" data-group-id="${g.id}">${escapeHtml(g.code)} (${escapeHtml(g.name)}) ×</span>`
+                ).join('') || '<span class="empty">없음</span>';
+            } else {
+                container.innerHTML = `<span class="error">불러오기 실패 (HTTP ${response.status}) ${escapeHtml(errorText(response))}</span>`;
+            }
+        } catch (e) {
+            container.innerHTML = '<span class="error">로드 실패</span>';
+        }
+    }
+
+    async function loadUserPermissions(userId) {
+        const container = document.getElementById('currentPermissions');
+        try {
+            const response = await apiCall(`/admin/users/${userId}/permissions`, 'GET');
+            if (response.ok && response.data) {
+                container.innerHTML = response.data.map(p =>
+                    `<span class="tag permission" title="${escapeHtml(p.name)}">${escapeHtml(p.code)}</span>`
+                ).join('') || '<span class="empty">없음</span>';
+            } else {
+                container.innerHTML = `<span class="error">불러오기 실패 (HTTP ${response.status}) ${escapeHtml(errorText(response))}</span>`;
+            }
+        } catch (e) {
+            container.innerHTML = '<span class="error">로드 실패</span>';
+        }
+    }
+
+    async function addGroup() {
+        const userId = targetUserId();
+        const groupId = document.getElementById('groupSelect').value;
+        if (userId === null || !groupId) return;
+
+        try {
+            const response = await apiCall(`/admin/users/${userId}/groups`, 'POST', { roleIds: [parseInt(groupId)] });
+            if (response.ok) {
+                loadUserGroups(userId);
+                loadUserPermissions(userId);
+                showNotification('그룹이 추가되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || '그룹 추가 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('그룹 추가 실패', 'error');
+        }
+    }
+
+    async function removeGroup(userId, groupId) {
+        if (!confirm('그룹을 제거하시겠습니까?')) return;
+
+        try {
+            const response = await apiCall(`/admin/users/${userId}/groups/${groupId}`, 'DELETE');
+            if (response.ok) {
+                loadUserGroups(userId);
+                loadUserPermissions(userId);
+                showNotification('그룹이 제거되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || '그룹 제거 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('그룹 제거 실패', 'error');
+        }
+    }
+
+    async function checkPermission() {
+        const userId = targetUserId();
+        const code = document.getElementById('permissionCodeInput').value.trim();
+        const result = document.getElementById('permissionCheckResult');
+        if (userId === null || !code) return;
+
+        try {
+            const response = await apiCall(`/admin/users/${userId}/permissions/${encodeURIComponent(code)}/check`, 'GET');
+            if (response.ok) {
+                result.textContent = response.data.hasPermission ? `보유: ${code}` : `미보유: ${code}`; // textContent 라 이스케이프 불필요
+                result.className = response.data.hasPermission ? 'success' : 'error';
+            } else {
+                result.textContent = `확인 실패 (HTTP ${response.status}) ${errorText(response)}`; // textContent 라 이스케이프 불필요
+                result.className = 'error';
+            }
+        } catch (e) {
+            result.textContent = '권한 확인 실패';
+            result.className = 'error';
+        }
+    }
+</script>
+</body>
+</html>

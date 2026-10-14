@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/layout :: head('로그인 - Demo')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+
+<main class="auth-main">
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>로그인</h1>
+            <p class="auth-subtitle">계정에 로그인하세요</p>
+
+            <form id="loginForm" class="auth-form">
+                <div class="form-group">
+                    <label for="loginId">로그인 ID</label>
+                    <input type="text" id="loginId" name="loginId" placeholder="로그인 ID" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">비밀번호</label>
+                    <input type="password" id="password" name="password" placeholder="비밀번호" required>
+                </div>
+                <div class="form-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="rememberMe"> 로그인 상태 유지
+                    </label>
+                    <a th:href="@{/demo/auth/forgot-password}" class="forgot-link">비밀번호 찾기</a>
+                </div>
+                <button type="submit" class="btn-primary">로그인</button>
+            </form>
+
+            <div class="auth-divider">
+                <span>또는</span>
+            </div>
+
+            <a th:href="@{/demo/auth/social-login}" class="btn-secondary">소셜 계정으로 로그인</a>
+
+            <p class="auth-footer">
+                계정이 없으신가요? <a th:href="@{/demo/auth/signup}">회원가입</a>
+            </p>
+        </div>
+
+        <div th:replace="~{fragments/layout :: result-area}"></div>
+    </div>
+</main>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<script>
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const loginId = document.getElementById('loginId').value;
+        const password = document.getElementById('password').value;
+
+        try {
+            const response = await apiCall('/auth/login', 'POST', {
+                loginId: loginId,
+                password: password
+            });
+
+            showResult(response);
+
+            if (response.ok && response.data) {
+                // 토큰 저장
+                if (response.data.accessToken) {
+                    saveTokens(response.data.accessToken, response.data.refreshToken);
+                    showNotification('로그인 성공!', 'success');
+                }
+            }
+        } catch (error) {
+            showError(error.message);
+        }
+    });
+
+    function showNotification(message, type) {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 3000);
+    }
+</script>
+</body>
+</html>

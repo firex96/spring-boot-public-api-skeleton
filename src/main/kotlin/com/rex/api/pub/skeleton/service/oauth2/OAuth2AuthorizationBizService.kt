@@ -1,0 +1,583 @@
+package com.rex.api.pub.skeleton.service.oauth2
+
+import com.rex.api.pub.skeleton.config.security.JwtProperties
+import com.rex.api.pub.skeleton.dto.oauth2.AuthorizationConsentDto
+import com.rex.api.pub.skeleton.dto.oauth2.AuthorizationRequestDto
+import com.rex.api.pub.skeleton.dto.oauth2.AuthorizeDecisionDto
+import com.rex.api.pub.skeleton.dto.oauth2.OAuth2AccessTokenDto
+import com.rex.api.pub.skeleton.dto.oauth2.OAuth2ClientDto
+import com.rex.api.pub.skeleton.dto.oauth2.OAuth2RefreshTokenDto
+import com.rex.api.pub.skeleton.dto.oauth2.OAuth2TokenResponseDto
+import com.rex.api.pub.skeleton.dto.oauth2.TokenIntrospectionResponseDto
+import com.rex.api.pub.skeleton.dto.oidc.OidcTokenResponseDto
+import com.rex.api.pub.skeleton.enums.oauth2.AuthorizeNextStep
+import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
+import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
+import com.rex.api.pub.skeleton.persistence.jpa.service.oauth2.OAuth2TokenEntityService
+import com.rex.api.pub.skeleton.service.oidc.IdTokenBizService
+import com.rex.api.pub.skeleton.util.logger
+import io.jsonwebtoken.Jwts
+import io.jsonwebtoken.security.Keys
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.util.Base64
+import java.util.Date
+import java.util.UUID
+
+/**
+ * OAuth2 인가 서버 비즈니스 — 인가 코드·토큰 발급·검사·폐기와 클라이언트 자격 인증.
+ * 인가 요청의 판정(`authorize`·`consent`)은 여기서 내리고 컨트롤러는 리다이렉트 URL 만 조립한다.
+ */
+@Service
+class OAuth2AuthorizationBizService(
+    private val oAuth2ClientBizService: OAuth2ClientBizService,
+    private val oAuth2TokenEntityService: OAuth2TokenEntityService,
+    private val userEntityService: UserEntityService,
+    private val jwtProperties: JwtProperties,
+    private val idTokenBizService: IdTokenBizService,
+) {
+    private val log = logger()
+
+    companion object {
+        private const val AUTHORIZATION_CODE_LENGTH = 32
+        private const val AUTHORIZATION_CODE_VALIDITY_SECONDS = 600L // 10분
+
+        const val GRANT_TYPE_AUTHORIZATION_CODE = "authorization_code"
+        const val GRANT_TYPE_REFRESH_TOKEN = "refresh_token"
+        const val GRANT_TYPE_CLIENT_CREDENTIALS = "client_credentials"
+
+        const val ERROR_INVALID_REQUEST = "invalid_request"
+        const val ERROR_UNAUTHORIZED_CLIENT = "unauthorized_client"
+        const val ERROR_ACCESS_DENIED = "access_denied"
+        const val ERROR_UNSUPPORTED_RESPONSE_TYPE = "unsupported_response_type"
+        const val ERROR_INVALID_SCOPE = "invalid_scope"
+        const val ERROR_INVALID_GRANT = "invalid_grant"
+        const val ERROR_UNSUPPORTED_GRANT_TYPE = "unsupported_grant_type"
+        const val ERROR_INVALID_CLIENT = "invalid_client"
+    }
+
+    private val signingKey by lazy {
+        Keys.hmacShaKeyFor(jwtProperties.secret.toByteArray(StandardCharsets.UTF_8))
+    }
+
+    // ===== Authorization Endpoint =====
+
+    /**
+     * `GET /oauth2/authorize` 의 판정. client·redirect_uri 검증 실패는 예외로 던진다(RFC 6749 §4.1.2.1 — 리다이렉트하지 않는다).
+     * 그 뒤의 오류(invalid_scope 등)는 검증된 redirect_uri 로 알릴 수 있으므로 `ERROR` 판정으로 돌려준다.
+     */
+    @Transactional(transactionManager = "authTransactionManager") // 인가 코드 저장이 auth 트랜잭션에 참여해야 한다 — primary 는 default TM
+    fun authorize(request: AuthorizationRequestDto, userId: Long?): AuthorizeDecisionDto {
+        val client = validateClientAndRedirectUri(request)
+        return try {
+            validateAuthorizationParameters(request, client)
+            when {
+                userId == null -> decision(AuthorizeNextStep.LOGIN_REQUIRED)
+                client.isFirstParty -> decision(AuthorizeNextStep.CODE_ISSUED, code = issueAuthorizationCode(request, userId))
+                else -> decision(AuthorizeNextStep.CONSENT_REQUIRED)
+            }
+        } catch (e: OAuth2Exception) {
+            decision(AuthorizeNextStep.ERROR, error = e.error, errorDescription = e.errorDescription)
+        }
+    }
+
+    /** `POST /oauth2/consent` 의 판정 — 거부는 `access_denied` 오류 판정, 승인은 코드 발급. */
+    @Transactional(transactionManager = "authTransactionManager") // 인가 코드 저장이 auth 트랜잭션에 참여해야 한다 — primary 는 default TM
+    fun consent(request: AuthorizationRequestDto, userId: Long, approve: Boolean): AuthorizeDecisionDto {
+        validateAuthorizationRequest(request)
+        if (!approve) {
+            return decision(AuthorizeNextStep.ERROR, error = ERROR_ACCESS_DENIED, errorDescription = "사용자가 동의를 거부했습니다")
+        }
+        return decision(AuthorizeNextStep.CODE_ISSUED, code = issueAuthorizationCode(request, userId))
+    }
+
+    /**
+     * client·redirect_uri 검증 — RFC 6749 §4.1.2.1: 이 검증이 실패하면 **리다이렉트하지 않는다**.
+     * 컨트롤러는 이 메서드가 돌려준 뒤에만 `request.redirectUri` 를 신뢰한다.
+     */
+    fun validateClientAndRedirectUri(request: AuthorizationRequestDto): OAuth2ClientDto {
+        val client = oAuth2ClientBizService.getActiveClient(request.clientId)
+            ?: throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
+        if (!client.hasGrantType(GRANT_TYPE_AUTHORIZATION_CODE)) {
+            throw OAuth2Exception(ERROR_UNAUTHORIZED_CLIENT, "클라이언트가 authorization_code flow를 지원하지 않습니다")
+        }
+        if (!client.isValidRedirectUri(request.redirectUri)) {
+            throw OAuth2Exception(ERROR_INVALID_REQUEST, "유효하지 않은 redirect_uri입니다")
+        }
+        return client
+    }
+
+    /** 검증된 client 에 대한 나머지 파라미터 검증 — 실패는 검증된 redirect_uri 로 알릴 수 있다. */
+    fun validateAuthorizationParameters(request: AuthorizationRequestDto, client: OAuth2ClientDto) {
+        if (request.responseType != "code") {
+            throw OAuth2Exception(ERROR_UNSUPPORTED_RESPONSE_TYPE, "지원하지 않는 response_type입니다")
+        }
+        if (client.requirePkce && request.codeChallenge.isNullOrBlank()) {
+            throw OAuth2Exception(ERROR_INVALID_REQUEST, "PKCE code_challenge가 필요합니다")
+        }
+        if (!request.codeChallengeMethod.isNullOrBlank() &&
+            request.codeChallengeMethod !in listOf("plain", "S256")
+        ) {
+            throw OAuth2Exception(ERROR_INVALID_REQUEST, "지원하지 않는 code_challenge_method입니다")
+        }
+        request.scope?.split(" ")?.forEach { scope ->
+            if (!client.hasScope(scope)) {
+                throw OAuth2Exception(ERROR_INVALID_SCOPE, "지원하지 않는 scope입니다: $scope")
+            }
+        }
+    }
+
+    /** client·redirect_uri 검증 뒤 나머지 파라미터 검증 — 둘의 합성. */
+    fun validateAuthorizationRequest(request: AuthorizationRequestDto): OAuth2ClientDto =
+        validateClientAndRedirectUri(request).also { validateAuthorizationParameters(request, it) }
+
+    fun getConsentInfo(request: AuthorizationRequestDto, client: OAuth2ClientDto): AuthorizationConsentDto {
+        val requestedScopes = request.scope?.split(" ") ?: client.scopes
+        return AuthorizationConsentDto(
+            clientId = client.clientId,
+            clientName = client.clientName,
+            requestedScopes = requestedScopes,
+            redirectUri = request.redirectUri,
+            state = request.state,
+        )
+    }
+
+    @Transactional(transactionManager = "authTransactionManager") // auth 리포지토리 읽기·쓰기가 한 트랜잭션(커넥션 1개)에 참여해야 한다 — primary 는 default TM
+    fun createAuthorizationCode(
+        clientId: String,
+        userId: Long,
+        redirectUri: String,
+        scope: String?,
+        codeChallenge: String?,
+        codeChallengeMethod: String?,
+        state: String?,
+        nonce: String?,
+    ): String {
+        val code = generateAuthorizationCode()
+        oAuth2TokenEntityService.createAuthorizationCode(
+            code = code,
+            clientId = clientId,
+            userId = userId,
+            redirectUri = redirectUri,
+            scopes = scope?.replace(" ", ","),
+            codeChallenge = codeChallenge,
+            codeChallengeMethod = codeChallengeMethod ?: "plain",
+            state = state,
+            nonce = nonce,
+            expiresAt = LocalDateTime.now().plusSeconds(AUTHORIZATION_CODE_VALIDITY_SECONDS),
+        )
+        return code
+    }
+
+    // ===== Token Endpoint =====
+
+    /**
+     * 클라이언트 자격 인증 — `client_secret` 이 없으면 활성 public 클라이언트인지만, 있으면 시크릿 일치까지 본다. 성공하면 clientId.
+     */
+    fun authenticateClient(clientId: String?, clientSecret: String?): String {
+        if (clientId.isNullOrBlank()) {
+            throw OAuth2Exception(ERROR_INVALID_CLIENT, "client_id가 필요합니다")
+        }
+        if (clientSecret.isNullOrBlank()) {
+            if (oAuth2ClientBizService.getActiveClient(clientId) == null) {
+                throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
+            }
+            return clientId
+        }
+        if (!oAuth2ClientBizService.validateClientCredentials(clientId, clientSecret)) {
+            throw OAuth2Exception(ERROR_INVALID_CLIENT, "클라이언트 인증에 실패했습니다")
+        }
+        return clientId
+    }
+
+    /** `POST /oauth2/token` — grant_type 분기. 인증된 clientId 를 받는다(`authenticateClient` 뒤). */
+    @Transactional(transactionManager = "authTransactionManager") // 같은 클래스의 grant 메서드를 직접 부르므로 트랜잭션은 여기서 연다(자기 호출은 프록시를 지나지 않는다)
+    fun issueTokenByGrant(
+        grantType: String,
+        code: String?,
+        redirectUri: String?,
+        clientId: String,
+        clientSecret: String?,
+        refreshToken: String?,
+        scope: String?,
+        codeVerifier: String?,
+    ): OidcTokenResponseDto = when (grantType) {
+        GRANT_TYPE_AUTHORIZATION_CODE -> {
+            requireNotNull(code) { "code는 필수입니다" }
+            requireNotNull(redirectUri) { "redirect_uri는 필수입니다" }
+            exchangeAuthorizationCode(code = code, redirectUri = redirectUri, clientId = clientId, codeVerifier = codeVerifier)
+        }
+        GRANT_TYPE_REFRESH_TOKEN -> {
+            requireNotNull(refreshToken) { "refresh_token은 필수입니다" }
+            refreshAccessToken(refreshTokenValue = refreshToken, clientId = clientId, clientSecret = clientSecret, scope = scope).toOidc()
+        }
+        GRANT_TYPE_CLIENT_CREDENTIALS -> clientCredentialsGrant(clientId = clientId, scope = scope).toOidc()
+        else -> throw OAuth2Exception(ERROR_UNSUPPORTED_GRANT_TYPE, "지원하지 않는 grant_type입니다: $grantType")
+    }
+
+    @Transactional(transactionManager = "authTransactionManager") // auth 리포지토리 읽기·쓰기가 한 트랜잭션(커넥션 1개)에 참여해야 한다 — primary 는 default TM
+    fun exchangeAuthorizationCode(
+        code: String,
+        redirectUri: String,
+        clientId: String,
+        codeVerifier: String?,
+    ): OidcTokenResponseDto {
+        val authCode = oAuth2TokenEntityService.getUnusedAuthorizationCode(code)
+            ?: throw OAuth2Exception(ERROR_INVALID_GRANT, "유효하지 않은 authorization code입니다")
+        if (authCode.isUsed || authCode.expiresAt.isBefore(LocalDateTime.now())) {
+            throw OAuth2Exception(ERROR_INVALID_GRANT, "만료되었거나 이미 사용된 authorization code입니다")
+        }
+        if (authCode.clientId != clientId) {
+            throw OAuth2Exception(ERROR_INVALID_GRANT, "client_id가 일치하지 않습니다")
+        }
+        if (authCode.redirectUri != redirectUri) {
+            throw OAuth2Exception(ERROR_INVALID_GRANT, "redirect_uri가 일치하지 않습니다")
+        }
+
+        // PKCE 검증
+        val codeChallenge = authCode.codeChallenge
+        if (!codeChallenge.isNullOrBlank()) {
+            if (codeVerifier.isNullOrBlank()) {
+                throw OAuth2Exception(ERROR_INVALID_GRANT, "code_verifier가 필요합니다")
+            }
+            if (!verifyCodeChallenge(codeVerifier, codeChallenge, authCode.codeChallengeMethod)) {
+                throw OAuth2Exception(ERROR_INVALID_GRANT, "code_verifier가 유효하지 않습니다")
+            }
+        }
+
+        oAuth2TokenEntityService.markAuthorizationCodeUsed(code, LocalDateTime.now())
+
+        val client = oAuth2ClientBizService.getActiveClient(clientId)
+            ?: throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
+
+        return issueTokens(client = client, userId = authCode.userId, scopes = authCode.scopes, nonce = authCode.nonce)
+    }
+
+    @Transactional(transactionManager = "authTransactionManager") // auth 리포지토리 읽기·쓰기가 한 트랜잭션(커넥션 1개)에 참여해야 한다 — primary 는 default TM
+    fun refreshAccessToken(
+        refreshTokenValue: String,
+        clientId: String,
+        clientSecret: String?,
+        scope: String?,
+    ): OAuth2TokenResponseDto {
+        val refreshTokenId = extractTokenId(refreshTokenValue)
+            ?: throw OAuth2Exception(ERROR_INVALID_GRANT, "유효하지 않은 refresh token입니다")
+        val refreshToken = oAuth2TokenEntityService.getUnrevokedRefreshToken(refreshTokenId)
+            ?: throw OAuth2Exception(ERROR_INVALID_GRANT, "유효하지 않은 refresh token입니다")
+        if (!refreshToken.isActive()) {
+            throw OAuth2Exception(ERROR_INVALID_GRANT, "만료되었거나 취소된 refresh token입니다")
+        }
+        if (refreshToken.clientId != clientId) {
+            throw OAuth2Exception(ERROR_INVALID_GRANT, "client_id가 일치하지 않습니다")
+        }
+
+        val client = oAuth2ClientBizService.getActiveClient(clientId)
+            ?: throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
+
+        // 기존 access token 폐기 후 새로 발급(refresh token 은 유지)
+        oAuth2TokenEntityService.revokeAccessTokensByRefreshTokenId(refreshTokenId, LocalDateTime.now())
+        val tokenScopes = scope?.replace(" ", ",") ?: refreshToken.scopes
+        return issueAccessToken(client = client, userId = refreshToken.userId, scopes = tokenScopes, refreshTokenId = refreshTokenId)
+    }
+
+    @Transactional(transactionManager = "authTransactionManager") // auth 리포지토리 읽기·쓰기가 한 트랜잭션(커넥션 1개)에 참여해야 한다 — primary 는 default TM
+    fun clientCredentialsGrant(
+        clientId: String,
+        scope: String?,
+    ): OAuth2TokenResponseDto {
+        val client = oAuth2ClientBizService.getActiveClient(clientId)
+            ?: throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
+        if (!client.hasGrantType(GRANT_TYPE_CLIENT_CREDENTIALS)) {
+            throw OAuth2Exception(ERROR_UNAUTHORIZED_CLIENT, "클라이언트가 client_credentials flow를 지원하지 않습니다")
+        }
+        val requestedScopes = scope?.split(" ")?.joinToString(",") ?: client.scopes.joinToString(",")
+        return issueAccessTokenOnly(client = client, userId = null, scopes = requestedScopes)
+    }
+
+    // ===== Introspection · Revocation =====
+
+    fun introspectToken(token: String, clientId: String): TokenIntrospectionResponseDto {
+        val tokenId = extractTokenId(token) ?: return TokenIntrospectionResponseDto(active = false)
+
+        val accessToken = oAuth2TokenEntityService.getAccessToken(tokenId)
+        if (accessToken != null) {
+            if (!accessToken.isActive()) {
+                return TokenIntrospectionResponseDto(active = false)
+            }
+            return TokenIntrospectionResponseDto(
+                active = true,
+                scope = accessToken.scopes?.replace(",", " "),
+                clientId = accessToken.clientId,
+                username = accessToken.userId?.let { loginIdOf(it) },
+                tokenType = accessToken.tokenType,
+                exp = accessToken.expiresAt.atZone(ZoneId.systemDefault()).toEpochSecond(),
+                iat = accessToken.issuedAt.atZone(ZoneId.systemDefault()).toEpochSecond(),
+                sub = accessToken.userId?.toString(),
+                aud = accessToken.clientId,
+                iss = jwtProperties.issuer,
+                jti = accessToken.tokenId,
+            )
+        }
+
+        val refreshToken = oAuth2TokenEntityService.getRefreshToken(tokenId)
+        if (refreshToken != null && refreshToken.isActive()) {
+            return TokenIntrospectionResponseDto(
+                active = true,
+                scope = refreshToken.scopes?.replace(",", " "),
+                clientId = refreshToken.clientId,
+                username = refreshToken.userId?.let { loginIdOf(it) },
+                tokenType = "refresh_token",
+                exp = refreshToken.expiresAt.atZone(ZoneId.systemDefault()).toEpochSecond(),
+                iat = refreshToken.issuedAt.atZone(ZoneId.systemDefault()).toEpochSecond(),
+                sub = refreshToken.userId?.toString(),
+                iss = jwtProperties.issuer,
+                jti = refreshToken.tokenId,
+            )
+        }
+
+        return TokenIntrospectionResponseDto(active = false)
+    }
+
+    @Transactional(transactionManager = "authTransactionManager") // auth 리포지토리 읽기·쓰기가 한 트랜잭션(커넥션 1개)에 참여해야 한다 — primary 는 default TM
+    fun revokeToken(token: String, clientId: String) {
+        val tokenId = extractTokenId(token) ?: return
+        val now = LocalDateTime.now()
+
+        if (oAuth2TokenEntityService.revokeAccessToken(tokenId, now) > 0) {
+            return
+        }
+        // refresh token 이면 그 토큰으로 발급된 access token 도 함께 폐기
+        if (oAuth2TokenEntityService.revokeRefreshToken(tokenId, now) > 0) {
+            oAuth2TokenEntityService.revokeAccessTokensByRefreshTokenId(tokenId, now)
+        }
+    }
+
+    // ===== Private =====
+
+    private fun issueAuthorizationCode(request: AuthorizationRequestDto, userId: Long): String =
+        createAuthorizationCode(
+            clientId = request.clientId,
+            userId = userId,
+            redirectUri = request.redirectUri,
+            scope = request.scope,
+            codeChallenge = request.codeChallenge,
+            codeChallengeMethod = request.codeChallengeMethod,
+            state = request.state,
+            nonce = request.nonce,
+        )
+
+    private fun decision(
+        nextStep: AuthorizeNextStep,
+        code: String? = null,
+        error: String? = null,
+        errorDescription: String? = null,
+    ) = AuthorizeDecisionDto(nextStep = nextStep, code = code, error = error, errorDescription = errorDescription)
+
+    private fun loginIdOf(userId: Long): String? = userEntityService.getUserById(userId)?.loginId
+
+    private fun issueTokens(
+        client: OAuth2ClientDto,
+        userId: Long?,
+        scopes: String?,
+        nonce: String? = null,
+    ): OidcTokenResponseDto {
+        val accessTokenId = UUID.randomUUID().toString()
+        val refreshTokenId = UUID.randomUUID().toString()
+        val now = LocalDateTime.now()
+        val accessTokenExpiry = now.plusSeconds(client.accessTokenValidity.toLong())
+        val refreshTokenExpiry = now.plusSeconds(client.refreshTokenValidity.toLong())
+
+        val accessToken = generateJwt(tokenId = accessTokenId, clientId = client.clientId, userId = userId, scopes = scopes, expiresAt = accessTokenExpiry)
+        val refreshToken =
+            generateJwt(
+                tokenId = refreshTokenId,
+                clientId = client.clientId,
+                userId = userId,
+                scopes = scopes,
+                expiresAt = refreshTokenExpiry,
+                isRefreshToken = true,
+            )
+
+        oAuth2TokenEntityService.createAccessToken(
+            tokenId = accessTokenId,
+            clientId = client.clientId,
+            userId = userId,
+            scopes = scopes,
+            expiresAt = accessTokenExpiry,
+            refreshTokenId = refreshTokenId,
+        )
+        oAuth2TokenEntityService.createRefreshToken(
+            tokenId = refreshTokenId,
+            clientId = client.clientId,
+            userId = userId,
+            scopes = scopes,
+            expiresAt = refreshTokenExpiry,
+        )
+
+        // OIDC: openid scope 가 있으면 ID 토큰도 발급
+        var idToken: String? = null
+        val scopeSet = scopes?.split(",")?.toSet() ?: emptySet()
+        if (scopeSet.contains("openid") && userId != null) {
+            userEntityService.getUserById(userId)?.let { user ->
+                idToken =
+                    idTokenBizService.generateIdToken(
+                        user = user,
+                        clientId = client.clientId,
+                        nonce = nonce,
+                        scopes = scopeSet,
+                        accessTokenHash = idTokenBizService.computeAtHash(accessToken),
+                    )
+            }
+        }
+
+        return OidcTokenResponseDto(
+            accessToken = accessToken,
+            tokenType = "Bearer",
+            expiresIn = client.accessTokenValidity.toLong(),
+            refreshToken = refreshToken,
+            scope = scopes?.replace(",", " "),
+            idToken = idToken,
+        )
+    }
+
+    private fun issueAccessToken(
+        client: OAuth2ClientDto,
+        userId: Long?,
+        scopes: String?,
+        refreshTokenId: String,
+    ): OAuth2TokenResponseDto {
+        val accessTokenId = UUID.randomUUID().toString()
+        val accessTokenExpiry = LocalDateTime.now().plusSeconds(client.accessTokenValidity.toLong())
+        val accessToken = generateJwt(tokenId = accessTokenId, clientId = client.clientId, userId = userId, scopes = scopes, expiresAt = accessTokenExpiry)
+        oAuth2TokenEntityService.createAccessToken(
+            tokenId = accessTokenId,
+            clientId = client.clientId,
+            userId = userId,
+            scopes = scopes,
+            expiresAt = accessTokenExpiry,
+            refreshTokenId = refreshTokenId,
+        )
+        return OAuth2TokenResponseDto(
+            accessToken = accessToken,
+            tokenType = "Bearer",
+            expiresIn = client.accessTokenValidity.toLong(),
+            scope = scopes?.replace(",", " "),
+        )
+    }
+
+    private fun issueAccessTokenOnly(
+        client: OAuth2ClientDto,
+        userId: Long?,
+        scopes: String?,
+    ): OAuth2TokenResponseDto {
+        val accessTokenId = UUID.randomUUID().toString()
+        val accessTokenExpiry = LocalDateTime.now().plusSeconds(client.accessTokenValidity.toLong())
+        val accessToken = generateJwt(tokenId = accessTokenId, clientId = client.clientId, userId = userId, scopes = scopes, expiresAt = accessTokenExpiry)
+        oAuth2TokenEntityService.createAccessToken(
+            tokenId = accessTokenId,
+            clientId = client.clientId,
+            userId = userId,
+            scopes = scopes,
+            expiresAt = accessTokenExpiry,
+            refreshTokenId = null,
+        )
+        return OAuth2TokenResponseDto(
+            accessToken = accessToken,
+            tokenType = "Bearer",
+            expiresIn = client.accessTokenValidity.toLong(),
+            scope = scopes?.replace(",", " "),
+        )
+    }
+
+    private fun OAuth2TokenResponseDto.toOidc() = OidcTokenResponseDto(
+        accessToken = accessToken,
+        tokenType = tokenType,
+        expiresIn = expiresIn,
+        refreshToken = refreshToken,
+        scope = scope,
+    )
+
+    // Entity 의 판정 메서드를 DTO 확장으로 — 본문은 Entity 의 것과 같다
+    private fun OAuth2ClientDto.hasGrantType(grantType: String): Boolean = grantTypes.contains(grantType)
+
+    private fun OAuth2ClientDto.hasScope(scope: String): Boolean = scopes.contains(scope)
+
+    private fun OAuth2ClientDto.isValidRedirectUri(uri: String): Boolean {
+        if (redirectUris.isEmpty()) return false
+        return redirectUris.any { pattern ->
+            if (pattern.endsWith("*")) uri.startsWith(pattern.dropLast(1)) else uri == pattern
+        }
+    }
+
+    private fun OAuth2AccessTokenDto.isActive(): Boolean = !isRevoked && !expiresAt.isBefore(LocalDateTime.now())
+
+    private fun OAuth2RefreshTokenDto.isActive(): Boolean = !isRevoked && !expiresAt.isBefore(LocalDateTime.now())
+
+    private fun generateJwt(
+        tokenId: String,
+        clientId: String,
+        userId: Long?,
+        scopes: String?,
+        expiresAt: LocalDateTime,
+        isRefreshToken: Boolean = false,
+    ): String {
+        val now = Instant.now()
+        val expiry = expiresAt.atZone(ZoneId.systemDefault()).toInstant()
+
+        val builder = Jwts.builder()
+            .id(tokenId)
+            .issuer(jwtProperties.issuer)
+            .audience().add(clientId).and()
+            .issuedAt(Date.from(now))
+            .expiration(Date.from(expiry))
+
+        if (userId != null) {
+            builder.subject(userId.toString())
+        }
+        if (scopes != null) {
+            builder.claim("scope", scopes.replace(",", " "))
+        }
+        if (isRefreshToken) {
+            builder.claim("token_type", "refresh_token")
+        }
+        return builder.signWith(signingKey).compact()
+    }
+
+    private fun extractTokenId(token: String): String? = try {
+        Jwts.parser()
+            .verifyWith(signingKey)
+            .build()
+            .parseSignedClaims(token)
+            .payload
+            .id
+    } catch (e: Exception) {
+        log.debug("Token parsing failed: ${e.message}")
+        null
+    }
+
+    private fun generateAuthorizationCode(): String {
+        val bytes = ByteArray(AUTHORIZATION_CODE_LENGTH)
+        SecureRandom().nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes).take(AUTHORIZATION_CODE_LENGTH)
+    }
+
+    private fun verifyCodeChallenge(
+        codeVerifier: String,
+        codeChallenge: String,
+        method: String?,
+    ): Boolean = when (method) {
+        "S256" -> {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hash = digest.digest(codeVerifier.toByteArray(StandardCharsets.US_ASCII))
+            val computed = Base64.getUrlEncoder().withoutPadding().encodeToString(hash)
+            computed == codeChallenge
+        }
+        else -> codeVerifier == codeChallenge
+    }
+}

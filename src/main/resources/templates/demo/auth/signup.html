@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/layout :: head('회원가입 - Demo')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+
+<main class="auth-main">
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>회원가입</h1>
+            <p class="auth-subtitle">새 계정을 만드세요</p>
+
+            <form id="signupForm" class="auth-form">
+                <div class="form-group">
+                    <label for="loginId">로그인 ID</label>
+                    <input type="text" id="loginId" name="loginId" placeholder="4자 이상" required minlength="4">
+                </div>
+                <div class="form-group">
+                    <label for="password">비밀번호</label>
+                    <input type="password" id="password" name="password" placeholder="8자 이상" required minlength="8">
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">비밀번호 확인</label>
+                    <input type="password" id="confirmPassword" name="confirmPassword" placeholder="비밀번호 확인" required>
+                </div>
+                <div class="form-group">
+                    <label for="email">이메일 (선택)</label>
+                    <input type="email" id="email" name="email" placeholder="email@example.com">
+                </div>
+                <div class="form-group">
+                    <label for="name">이름 (선택)</label>
+                    <input type="text" id="name" name="name" placeholder="홍길동">
+                </div>
+                <div class="form-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="agreeTerms" required>
+                        <a href="#" target="_blank">이용약관</a> 및 <a href="#" target="_blank">개인정보처리방침</a>에 동의합니다
+                    </label>
+                </div>
+                <button type="submit" class="btn-primary">회원가입</button>
+            </form>
+
+            <div class="auth-divider">
+                <span>또는</span>
+            </div>
+
+            <a th:href="@{/demo/auth/social-login}" class="btn-secondary">소셜 계정으로 가입</a>
+
+            <p class="auth-footer">
+                이미 계정이 있으신가요? <a th:href="@{/demo/auth/login}">로그인</a>
+            </p>
+        </div>
+
+        <div th:replace="~{fragments/layout :: result-area}"></div>
+    </div>
+</main>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<script>
+    document.getElementById('signupForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+
+        if (password !== confirmPassword) {
+            showError('비밀번호가 일치하지 않습니다.');
+            return;
+        }
+
+        const formData = {
+            loginId: document.getElementById('loginId').value,
+            password: password,
+            email: document.getElementById('email').value || null,
+            name: document.getElementById('name').value || null
+        };
+
+        try {
+            const response = await apiCall('/auth/signup', 'POST', formData);
+            showResult(response);
+
+            if (response.ok) {
+                alert('회원가입이 완료되었습니다. 이메일 인증을 진행해주세요.');
+            }
+        } catch (error) {
+            showError(error.message);
+        }
+    });
+</script>
+</body>
+</html>

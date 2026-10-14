@@ -1,0 +1,92 @@
+# E2E 프로필 — e2e 테스트가 @ActiveProfiles("local", "e2e") 로 켠다(e2eTest 태스크의 기본 프로필도 local,e2e).
+# 앱을 프로세스 안에서 띄우고(RANDOM_PORT) docker compose 로 띄운 MySQL·Redis(local 프로필 값)에 붙는다.
+# local 프로필이 Flyway 로 e2e 시드(db/migration/auth/dml/test)까지 넣는다.
+#
+# 실행: docker compose up -d && ./gradlew e2eTest
+#
+# 테스트 소스셋 예외 — 아래 고정 테스트 값과 선택적 e2e 계정 환경변수(E2E_*, *_CLIENT_ID/SECRET)는 설정값·비밀값 규약의
+# 예외 ② 다(.claude/rules/conventions.md). 운영 자격증명을 넣지 않는다.
+
+server:
+  port: 0 # 랜덤 포트 사용
+
+spring:
+  application:
+    name: public-api-skeleton-e2e
+
+# 보안 설정
+security:
+  login-protection:
+    enable-brute-force-protection: true # 로그인 보호 e2e(LoginProtectionE2ETest)가 계정 잠금을 실제로 밟는다
+    enable-ip-blocking: false # e2e 는 127.0.0.1 한 IP 에서 수백 회 로그인한다 — 켜면 스위트가 자기 IP 를 차단한다. IP 차단 경로는 유닛으로 고정
+
+oidc:
+  key-id: test-key-id
+
+# OAuth2 소셜 로그인 설정 (테스트용) — 값이 없으면 소셜 브라우저 테스트는 skip 된다
+# 브라우저 E2E 테스트 시 고정 포트 8888 사용
+oauth2:
+  redirect-base-url: http://localhost:8888
+  naver:
+    client-id: ${NAVER_CLIENT_ID:}
+    client-secret: ${NAVER_CLIENT_SECRET:}
+    scope:
+      - name
+      - email
+  kakao:
+    client-id: ${KAKAO_CLIENT_ID:}
+    client-secret: ${KAKAO_CLIENT_SECRET:}
+    scope: []
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    scope:
+      - openid
+      - email
+      - profile
+
+# E2E 테스트 설정
+# 소셜 로그인 계정 정보는 환경변수로 설정 (E2E_KAKAO_EMAIL, E2E_KAKAO_PASSWORD 등)
+#
+# provider-id 발견 방법:
+# 1. provider-id 없이 테스트 실행 (discover-provider-ids 태그, -Pkotest.tags=manual)
+# 2. 로그에서 "소셜 사용자 정보 조회" 후 providerId 확인
+# 3. 환경변수에 provider-id 설정 (E2E_KAKAO_PROVIDER_ID 등)
+e2e-test:
+  # 소셜 로그인 테스트용 계정 (환경변수로 설정)
+  social-login:
+    kakao:
+      email: ${E2E_KAKAO_EMAIL:}
+      password: ${E2E_KAKAO_PASSWORD:}
+      provider-id: ${E2E_KAKAO_PROVIDER_ID:}
+    naver:
+      id: ${E2E_NAVER_ID:}
+      password: ${E2E_NAVER_PASSWORD:}
+      provider-id: ${E2E_NAVER_PROVIDER_ID:}
+    google:
+      email: ${E2E_GOOGLE_EMAIL:}
+      password: ${E2E_GOOGLE_PASSWORD:}
+      # provider-id: Google 자동화 로그인 불가로 미설정
+  # E2E 테스트용 사용자 계정 (V3__insert_e2e_test_data.sql 시드)
+  test-users:
+    user:
+      login-id: e2e_test_user
+      password: Test@1234!
+      email: e2e_test_user@test.com
+    admin:
+      login-id: e2e_test_admin
+      password: Test@1234!
+      email: e2e_test_admin@test.com
+    super-admin:
+      login-id: e2e_test_super_admin
+      password: Test@1234!
+      email: e2e_test_super_admin@test.com
+
+springdoc:
+  api-docs:
+    enabled: false
+
+logging:
+  level:
+    root: INFO
+    com.rex: DEBUG

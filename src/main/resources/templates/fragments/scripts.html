@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<body>
+<!-- 토큰 저장 및 관리 스크립트 -->
+<script th:fragment="token-script">
+    // 토큰 저장
+    function saveTokens(accessToken, refreshToken) {
+        if (accessToken) localStorage.setItem('accessToken', accessToken);
+        if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+    }
+
+    // 토큰 가져오기
+    function getAccessToken() {
+        return localStorage.getItem('accessToken');
+    }
+
+    function getRefreshToken() {
+        return localStorage.getItem('refreshToken');
+    }
+
+    // 토큰 삭제 (로그아웃)
+    function clearTokens() {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+    }
+
+    // HTML 이스케이프 — 서버 값(그룹명·권한명·클라이언트명·감사 로그 등)을 템플릿 문자열로 끼워 넣기 전에 반드시 통과시킨다.
+    // 관리자 화면이라도 저장된 값이 그대로 innerHTML 로 들어가면 stored XSS 가 된다.
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // API 호출 (인증 헤더 포함)
+    async function apiCall(url, method = 'GET', body = null) {
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        const token = getAccessToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const options = {
+            method: method,
+            headers: headers
+        };
+
+        if (body && method !== 'GET') {
+            options.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => null);
+
+        return {
+            ok: response.ok,
+            status: response.status,
+            data: data
+        };
+    }
+
+    // 결과 표시
+    function showResult(response) {
+        const resultArea = document.getElementById('resultArea');
+        const resultStatus = document.getElementById('resultStatus');
+        const resultBody = document.getElementById('resultBody');
+
+        resultArea.style.display = 'block';
+        resultStatus.textContent = `Status: ${response.status}`;
+        resultStatus.className = `result-status ${response.ok ? 'success' : 'error'}`;
+        resultBody.textContent = JSON.stringify(response.data, null, 2);
+    }
+
+    // 에러 표시
+    function showError(message) {
+        const resultArea = document.getElementById('resultArea');
+        const resultStatus = document.getElementById('resultStatus');
+        const resultBody = document.getElementById('resultBody');
+
+        resultArea.style.display = 'block';
+        resultStatus.textContent = 'Error';
+        resultStatus.className = 'result-status error';
+        resultBody.textContent = message;
+    }
+</script>
+</body>
+</html>

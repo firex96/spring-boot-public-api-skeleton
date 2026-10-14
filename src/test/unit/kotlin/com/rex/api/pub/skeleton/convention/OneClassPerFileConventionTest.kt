@@ -1,0 +1,121 @@
+package com.rex.api.pub.skeleton.convention
+
+import io.kotest.core.spec.style.BehaviorSpec
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
+import io.kotest.matchers.shouldBe
+import java.nio.file.Files
+import java.nio.file.Paths
+import kotlin.io.path.extension
+
+/**
+ * 「1 Class per 1 File」 규약 검사 (README 「코딩 규약」).
+ *
+ * 최상위 `class`·`interface`·`object`(enum·data·annotation 포함)는 파일에 하나만 둔다. 예외는 Kotlin extension 파일(최상위 함수·프로퍼티만)과
+ * `sealed` 계층(sealed 타입과 그 직접 하위 타입)뿐이며 `typealias`·`fun main` 은 세지 않는다. 리플렉션은 파일 경계를 보지 못하므로
+ * `src/main/kotlin` 소스를 읽어 컬럼 0 선언을 센다(블록 주석·raw string·컬럼 0 줄 주석은 같은 길이 공백으로 지워 줄 번호를 보존).
+ * 파일 이름 = 클래스 이름은 ktlint `standard:filename` 이 강제하므로 여기서는 보지 않는다.
+ * 규칙마다 레포별 최소 스캔 대상 수(`MIN`)를 별도 케이스(OC-0)로 단언해 스캐너·경로 고장이 공허 통과하지 않는다 — 세 스켈레톤이 이 파일을 글자 그대로 공유한다.
+ */
+class OneClassPerFileConventionTest : BehaviorSpec({
+
+    Given("src/main/kotlin 의 .kt 파일") {
+        val files = Files.walk(Paths.get("src/main/kotlin")).use { stream -> stream.filter { it.extension == "kt" }.toList() }
+        val declarationsByFile = files.associateWith { topLevelDeclarations(Files.readString(it)) }
+        val declarationCount = declarationsByFile.values.sumOf { it.size }
+        println("OC-0 files=${files.size} declarations=$declarationCount (min ${MIN.files}/${MIN.declarations})")
+
+        Then("OC-0 스캔 파일·선언 수가 최소 수 이상이다 (스캐너·경로 고장으로 공허 통과하지 않는다)") {
+            files.size shouldBeGreaterThanOrEqual MIN.files
+            declarationCount shouldBeGreaterThanOrEqual MIN.declarations
+        }
+
+        Then("OC-1 파일마다 세는 최상위 선언은 하나다 (extension 파일·sealed 계층 예외)") {
+            val violations =
+                declarationsByFile.mapNotNull { (file, decls) ->
+                    val countable = countableDeclarations(decls)
+                    if (countable.size > 1) "$file: ${countable.joinToString(", ") { it.name }} (${countable.size} declarations)" else null
+                }.sorted()
+            violations.forEach { println("OC-1 violation: $it") }
+            violations.shouldBeEmpty()
+        }
+    }
+
+    Given("검출 규칙 자체 (픽스처)") {
+        Then("OC-2 data class 두 개는 위반이다") {
+            val src = "package a\n\ndata class A(val x: Int)\n\ndata class B(val y: Int)\n"
+            countableDeclarations(topLevelDeclarations(src)).map { it.name } shouldContainExactly listOf("A", "B")
+        }
+
+        Then("OC-3 sealed 계층은 예외지만 무관한 클래스는 센다") {
+            val hierarchy = "sealed class R\n\ndata class A(val x: Int) : R()\n\nobject B : R()\n\nclass C\n"
+            countableDeclarations(topLevelDeclarations(hierarchy)).map { it.name } shouldContainExactly listOf("R", "C")
+            val pure = "sealed class R\n\ndata class A(val x: Int) : R()\n"
+            countableDeclarations(topLevelDeclarations(pure)).map { it.name } shouldContainExactly listOf("R")
+            val interfaceHierarchy = "sealed interface S\n\nclass Impl(val v: Int) : Base(), S\n\nobject Empty : S\n"
+            countableDeclarations(topLevelDeclarations(interfaceHierarchy)).map { it.name } shouldContainExactly listOf("S")
+        }
+
+        Then("OC-4 주석·문자열·typealias·최상위 함수·중첩 선언은 세지 않고, fun interface·private class·annotation·enum 은 센다") {
+            val notCounted =
+                "package a\n\n/**\n * class InDoc\n */\nval raw = \"\"\"\nclass InRaw\n\"\"\"\n// class InLineComment\ntypealias T = A\n\nfun main() {\n    class Local\n}\n\nval x = 1\n"
+            topLevelDeclarations(notCounted).shouldBeEmpty()
+            val counted = "fun interface F {\n    fun f()\n}\n\nprivate class P\n\nannotation class An\n\nenum class E { A }\n"
+            topLevelDeclarations(counted).map { it.name } shouldContainExactly listOf("F", "P", "An", "E")
+            topLevelDeclarations("data class Only(val a: Int)\n").size shouldBe 1
+        }
+    }
+}) {
+    companion object {
+        /** 테스트 클래스의 패키지에서 base package 를 얻는다 — 세 스켈레톤이 이 파일을 글자 그대로 공유한다. */
+        private val BASE = OneClassPerFileConventionTest::class.java.packageName.removeSuffix(".convention")
+
+        /** 레포 식별자 — base package 의 `.skeleton` 앞 세그먼트(`pub`·`internal`·`batch`). base package 문자열은 여기 두지 않는다. */
+        private val REPO = BASE.removeSuffix(".skeleton").substringAfterLast('.')
+
+        /** 레포별 최소 스캔 대상 수 — 이보다 적으면 규약 위반이 아니라 스캐너·workingDir 가 잘못된 것이다(공허 통과 방지). */
+        private data class MinTargets(val files: Int, val declarations: Int)
+
+        private val MIN =
+            mapOf(
+                "pub" to MinTargets(files = 250, declarations = 250),
+                "internal" to MinTargets(files = 100, declarations = 100),
+                "batch" to MinTargets(files = 140, declarations = 140),
+            ).getValue(REPO)
+
+        /** 블록 주석 · raw string · 컬럼 0 줄 주석 — 같은 길이 공백으로 지워 줄 번호를 보존한다. */
+        private val NOISE = Regex("""/\*[\s\S]*?\*/|"{3}[\s\S]*?"{3}|^//[^\n]*""", RegexOption.MULTILINE)
+
+        /** 컬럼 0 의 class·interface·object 선언(수식어 선행 허용). typealias·최상위 fun/val·들여쓴 선언은 잡지 않는다. */
+        private val DECLARATION =
+            Regex(
+                """^(?:(?:public|private|internal|protected|abstract|open|final|sealed|data|enum|annotation|value|inline|inner|fun|expect|actual)\s+)*(?:class|interface|object)\s+(\w+)""",
+                RegexOption.MULTILINE,
+            )
+
+        /** 최상위 선언 — `header` 는 선언 시작부터 첫 `{`(또는 다음 선언 직전)까지로, 상위 타입 목록이 들어 있다. */
+        data class Declaration(val name: String, val sealed: Boolean, val header: String)
+
+        private fun blankNoise(src: String): String = NOISE.replace(src) { m -> m.value.map { if (it == '\n') '\n' else ' ' }.joinToString("") }
+
+        fun topLevelDeclarations(src: String): List<Declaration> {
+            val cleaned = blankNoise(src)
+            val matches = DECLARATION.findAll(cleaned).toList()
+            return matches.mapIndexed { i, m ->
+                val end = if (i + 1 < matches.size) matches[i + 1].range.first else cleaned.length
+                val segment = cleaned.substring(m.range.first, end)
+                Declaration(name = m.groupValues[1], sealed = Regex("""\bsealed\s""").containsMatchIn(m.value), header = segment.substringBefore("{"))
+            }
+        }
+
+        /** sealed 예외 — 파일에 최상위 sealed 가 정확히 하나(S)면 S 를 상위 타입으로 갖는 선언은 세지 않는다. */
+        fun countableDeclarations(decls: List<Declaration>): List<Declaration> {
+            val sealedNames = decls.filter { it.sealed }.map { it.name }
+            if (sealedNames.size != 1) return decls
+            val s = sealedNames.single()
+            val extendsSealed = Regex("""[:,]\s*$s\b""")
+            return decls.filterNot { !it.sealed && extendsSealed.containsMatchIn(it.header) }
+        }
+    }
+}

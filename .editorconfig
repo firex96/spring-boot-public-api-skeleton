@@ -1,0 +1,66 @@
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 4
+indent_style = space
+insert_final_newline = false
+max_line_length = 180
+tab_width = 4
+ij_visual_guides = 120
+
+[*.{kt,kts}]
+# ktlint 설정: IntelliJ IDEA 스타일 사용
+ktlint_code_style = intellij_idea
+ktlint_standard = enabled
+ktlint_experimental = disabled
+
+# Pinterest 고유 규칙 비활성화 (Kotlin 공식 표준과 무관한 규칙들)
+ktlint_standard_function-signature = disabled
+ktlint_standard_class-signature = disabled
+ktlint_standard_property-naming = disabled
+ktlint_standard_backing-property-naming = disabled
+ktlint_standard_function-naming = disabled
+ktlint_standard_no-blank-line-in-list = disabled
+ktlint_standard_blank-line-before-declaration = disabled
+ktlint_standard_blank-line-between-when-conditions = disabled
+ktlint_standard_context-receiver-wrapping = disabled
+ktlint_standard_kdoc-wrapping = disabled
+ktlint_standard_multiline-expression-wrapping = disabled
+ktlint_standard_multiline-loop-expression-wrapping = disabled
+ktlint_standard_string-template-indent = disabled
+ktlint_standard_try-catch-finally-spacing = disabled
+ktlint_standard_type-argument-list-spacing = disabled
+ktlint_standard_type-parameter-list-spacing = disabled
+
+# === IntelliJ 기본값과 다른 설정만 ===
+
+# Wildcard import 완전 비활성화 (기본값: 5)
+ij_kotlin_name_count_to_use_star_import = 99
+ij_kotlin_packages_to_use_import_on_demand =
+
+# 파라미터/인자 줄바꿈 강제 (기본값: off)
+ij_kotlin_call_parameters_wrap = on_every_item
+ij_kotlin_call_parameters_new_line_after_left_paren = true
+ij_kotlin_call_parameters_right_paren_on_new_line = true
+ij_kotlin_method_parameters_wrap = on_every_item
+ij_kotlin_method_parameters_new_line_after_left_paren = true
+ij_kotlin_method_parameters_right_paren_on_new_line = true
+ij_kotlin_if_rparen_on_new_line = true
+
+# Continuation indent 비활성화 (기본값: true)
+ij_kotlin_continuation_indent_for_chained_calls = false
+ij_kotlin_continuation_indent_for_expression_bodies = false
+ij_kotlin_continuation_indent_in_argument_lists = false
+ij_kotlin_continuation_indent_in_elvis = false
+ij_kotlin_continuation_indent_in_if_conditions = false
+ij_kotlin_continuation_indent_in_parameter_lists = false
+ij_kotlin_continuation_indent_in_supertype_lists = false
+
+[{*.yaml,*.yml}]
+indent_size = 2
+
+[{*.xml,*.xsd,*.xsl}]
+indent_size = 2

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/layout :: head('이메일 인증 - Demo')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+
+<main class="auth-main">
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>이메일 인증</h1>
+            <p class="auth-subtitle">이메일 인증 토큰을 입력하거나 URL 파라미터로 전달해주세요.</p>
+
+            <form id="verifyEmailForm" class="auth-form">
+                <div class="form-group">
+                    <label for="token">인증 토큰</label>
+                    <input type="text" id="token" name="token" placeholder="이메일로 받은 인증 토큰" required>
+                </div>
+                <button type="submit" class="btn-primary">이메일 인증</button>
+            </form>
+
+            <div id="verifyResult" class="verify-result" style="display: none;">
+                <div class="verify-success" id="successMessage" style="display: none;">
+                    <span class="icon">✅</span>
+                    <h2>인증 완료</h2>
+                    <p>이메일 인증이 성공적으로 완료되었습니다.</p>
+                    <a th:href="@{/demo/auth/login}" class="btn-primary">로그인하기</a>
+                </div>
+                <div class="verify-error" id="errorMessage" style="display: none;">
+                    <span class="icon">❌</span>
+                    <h2>인증 실패</h2>
+                    <p id="errorText">인증에 실패했습니다.</p>
+                    <a th:href="@{/demo/auth/signup}" class="btn-secondary">다시 가입하기</a>
+                </div>
+            </div>
+
+            <p class="auth-footer">
+                <a th:href="@{/demo/auth/login}">로그인으로 돌아가기</a>
+            </p>
+        </div>
+
+        <div th:replace="~{fragments/layout :: result-area}"></div>
+
+        <div class="info-box">
+            <h3>API 엔드포인트</h3>
+            <code>POST /user/email/verify</code>
+            <pre>{"token": "verification-token-from-email"}</pre>
+        </div>
+    </div>
+</main>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<script>
+    // URL 파라미터에서 토큰 추출 및 자동 인증
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get('token');
+    if (tokenFromUrl) {
+        document.getElementById('token').value = tokenFromUrl;
+        // 자동 인증 시도
+        verifyEmail(tokenFromUrl);
+    }
+
+    async function verifyEmail(token) {
+        try {
+            const response = await apiCall('/user/email/verify', 'POST', { token: token });
+            showResult(response);
+
+            const verifyResult = document.getElementById('verifyResult');
+            verifyResult.style.display = 'block';
+
+            if (response.ok) {
+                document.getElementById('successMessage').style.display = 'block';
+                document.getElementById('errorMessage').style.display = 'none';
+            } else {
+                document.getElementById('successMessage').style.display = 'none';
+                document.getElementById('errorMessage').style.display = 'block';
+                document.getElementById('errorText').textContent =
+                    response.data?.message || '인증에 실패했습니다.';
+            }
+        } catch (error) {
+            showError(error.message);
+        }
+    }
+
+    document.getElementById('verifyEmailForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const token = document.getElementById('token').value;
+        await verifyEmail(token);
+    });
+</script>
+</body>
+</html>

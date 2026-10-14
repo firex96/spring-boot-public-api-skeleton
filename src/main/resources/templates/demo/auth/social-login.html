@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/layout :: head('소셜 로그인 - Demo')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+
+<main class="auth-main">
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>소셜 로그인</h1>
+            <p class="auth-subtitle">소셜 계정으로 간편하게 로그인하세요</p>
+
+            <div class="social-buttons">
+                <button class="social-btn google" onclick="socialLogin('google')">
+                    <span class="social-icon">G</span>
+                    Google로 계속하기
+                </button>
+                <button class="social-btn kakao" onclick="socialLogin('kakao')">
+                    <span class="social-icon">K</span>
+                    카카오로 계속하기
+                </button>
+                <button class="social-btn naver" onclick="socialLogin('naver')">
+                    <span class="social-icon">N</span>
+                    네이버로 계속하기
+                </button>
+            </div>
+
+            <div class="auth-divider">
+                <span>또는</span>
+            </div>
+
+            <a th:href="@{/demo/auth/login}" class="btn-secondary">이메일로 로그인</a>
+
+            <p class="auth-footer">
+                계정이 없으신가요? <a th:href="@{/demo/auth/signup}">회원가입</a>
+            </p>
+        </div>
+
+        <div th:replace="~{fragments/layout :: result-area}"></div>
+
+        <div class="info-box">
+            <h3>소셜 로그인 API 엔드포인트</h3>
+            <ul>
+                <li><code>GET /auth/oauth2/{provider}/authorize</code> - 인증 URL 생성</li>
+                <li><code>POST /auth/oauth2/{provider}/callback</code> - 콜백 처리</li>
+            </ul>
+            <p>지원 Provider: google, kakao, naver</p>
+        </div>
+    </div>
+</main>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<script>
+    async function socialLogin(provider) {
+        try {
+            // 인증 URL 요청
+            const response = await apiCall(`/auth/oauth2/${provider}/authorize`, 'GET');
+            showResult(response);
+
+            if (response.ok && response.data && response.data.authorizationUrl) {
+                // 3초 후 소셜 로그인 페이지로 리다이렉트 (데모에서는 보여주기용)
+                setTimeout(() => {
+                    if (confirm('소셜 로그인 페이지로 이동하시겠습니까?')) {
+                        window.location.href = response.data.authorizationUrl;
+                    }
+                }, 1000);
+            }
+        } catch (error) {
+            showError(error.message);
+        }
+    }
+</script>
+</body>
+</html>

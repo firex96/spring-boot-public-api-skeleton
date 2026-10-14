@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:fragment="head(title)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${title}">Admin Demo</title>
+    <link rel="stylesheet" th:href="@{/css/demo.css}">
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
+<body>
+
+<!-- 관리자 사이드바 -->
+<aside th:fragment="sidebar">
+    <div class="admin-sidebar">
+        <div class="sidebar-header">
+            <a th:href="@{/demo}" class="logo">Public API Skeleton</a>
+            <span class="admin-badge">Admin</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a th:href="@{/demo/admin}" th:classappend="${#strings.equals(currentPage, 'index')} ? 'active' : ''">
+                <span class="icon">📊</span> 대시보드
+            </a>
+            <a th:href="@{/demo/admin/users}" th:classappend="${#strings.equals(currentPage, 'users')} ? 'active' : ''">
+                <span class="icon">👥</span> 사용자 관리
+            </a>
+            <a th:href="@{/demo/admin/groups}" th:classappend="${#strings.equals(currentPage, 'groups')} ? 'active' : ''">
+                <span class="icon">📁</span> 그룹 관리
+            </a>
+            <a th:href="@{/demo/admin/permissions}" th:classappend="${#strings.equals(currentPage, 'permissions')} ? 'active' : ''">
+                <span class="icon">🔐</span> 권한 관리
+            </a>
+            <a th:href="@{/demo/admin/audit-logs}" th:classappend="${#strings.equals(currentPage, 'audit-logs')} ? 'active' : ''">
+                <span class="icon">📋</span> 감사 로그
+            </a>
+            <a th:href="@{/demo/admin/oauth2-clients}" th:classappend="${#strings.equals(currentPage, 'oauth2-clients')} ? 'active' : ''">
+                <span class="icon">🔗</span> OAuth2 클라이언트
+            </a>
+            <a th:href="@{/demo/admin/security}" th:classappend="${#strings.equals(currentPage, 'security')} ? 'active' : ''">
+                <span class="icon">🛡️</span> 보안 관리
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <a th:href="@{/demo/auth/login}">
+                <span class="icon">🚪</span> 로그아웃
+            </a>
+        </div>
+    </div>
+</aside>
+
+<!-- 관리자 헤더 -->
+<header th:fragment="admin-header">
+    <div class="admin-header">
+        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+        <div class="header-right">
+            <span class="user-info" id="userInfo">관리자</span>
+            <a th:href="@{/swagger-ui.html}" target="_blank" class="api-docs-link">API 문서</a>
+        </div>
+    </div>
+</header>
+
+<!-- 관리자 공통 스크립트 -->
+<script th:fragment="admin-scripts">
+    // 사이드바 토글
+    function toggleSidebar() {
+        document.querySelector('.admin-sidebar').classList.toggle('collapsed');
+        document.querySelector('.admin-content').classList.toggle('expanded');
+    }
+
+    // 모달 열기
+    function openModal(modalId) {
+        document.getElementById(modalId).style.display = 'flex';
+    }
+
+    // 모달 닫기
+    function closeModal(modalId) {
+        document.getElementById(modalId).style.display = 'none';
+    }
+
+    // 테이블 행 삭제 확인
+    function confirmDelete(itemName, deleteCallback) {
+        if (confirm(`'${itemName}'을(를) 삭제하시겠습니까?`)) {
+            deleteCallback();
+        }
+    }
+
+    // 알림 표시
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.classList.add('fade-out');
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    }
+
+    // 페이지 로드 시 토큰 확인
+    document.addEventListener('DOMContentLoaded', function() {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+            showNotification('로그인이 필요합니다. 먼저 로그인 페이지에서 인증해주세요.', 'warning');
+        }
+    });
+</script>
+<script th:src="@{/js/admin.js}"></script>
+
+</body>
+</html>

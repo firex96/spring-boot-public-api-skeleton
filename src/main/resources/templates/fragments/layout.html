@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:fragment="head(title)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${title}">Demo</title>
+    <link rel="stylesheet" th:href="@{/css/demo.css}">
+</head>
+<body>
+
+<!-- 공통 헤더 -->
+<header th:fragment="header">
+    <nav class="main-nav">
+        <a th:href="@{/demo}" class="logo">Public API Skeleton Demo</a>
+        <div class="nav-links">
+            <a th:href="@{/demo/auth/login}">로그인</a>
+            <a th:href="@{/demo/auth/signup}">회원가입</a>
+            <a th:href="@{/demo/admin}">관리자</a>
+            <a href="/swagger-ui.html" target="_blank">API 문서</a>
+        </div>
+    </nav>
+</header>
+
+<!-- 공통 푸터 -->
+<footer th:fragment="footer">
+    <div class="footer-content">
+        <p>Public API Skeleton</p>
+        <p>Spring Boot Public API Skeleton</p>
+    </div>
+</footer>
+
+<!-- API 결과 표시 영역 -->
+<div th:fragment="result-area">
+    <div class="result-area" id="resultArea" style="display: none;">
+        <h3>API 응답</h3>
+        <div class="result-status" id="resultStatus"></div>
+        <pre class="result-body" id="resultBody"></pre>
+    </div>
+</div>
+
+<!-- 토큰 저장 및 관리 스크립트 -->
+<script th:fragment="token-script">
+    // 토큰 저장
+    function saveTokens(accessToken, refreshToken) {
+        if (accessToken) localStorage.setItem('accessToken', accessToken);
+        if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+    }
+
+    // 토큰 가져오기
+    function getAccessToken() {
+        return localStorage.getItem('accessToken');
+    }
+
+    function getRefreshToken() {
+        return localStorage.getItem('refreshToken');
+    }
+
+    // 토큰 삭제 (로그아웃)
+    function clearTokens() {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+    }
+
+    // API 호출 (인증 헤더 포함)
+    async function apiCall(url, method = 'GET', body = null) {
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        const token = getAccessToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const options = {
+            method: method,
+            headers: headers
+        };
+
+        if (body && method !== 'GET') {
+            options.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => null);
+
+        return {
+            ok: response.ok,
+            status: response.status,
+            data: data
+        };
+    }
+
+    // 결과 표시
+    function showResult(response) {
+        const resultArea = document.getElementById('resultArea');
+        const resultStatus = document.getElementById('resultStatus');
+        const resultBody = document.getElementById('resultBody');
+
+        resultArea.style.display = 'block';
+        resultStatus.textContent = `Status: ${response.status}`;
+        resultStatus.className = `result-status ${response.ok ? 'success' : 'error'}`;
+        resultBody.textContent = JSON.stringify(response.data, null, 2);
+    }
+
+    // 에러 표시
+    function showError(message) {
+        const resultArea = document.getElementById('resultArea');
+        const resultStatus = document.getElementById('resultStatus');
+        const resultBody = document.getElementById('resultBody');
+
+        resultArea.style.display = 'block';
+        resultStatus.textContent = 'Error';
+        resultStatus.className = 'result-status error';
+        resultBody.textContent = message;
+    }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/admin-layout :: head('권한 관리 - Demo')}"></head>
+<body class="admin-body">
+<aside th:replace="~{fragments/admin-layout :: sidebar}"></aside>
+
+<div class="admin-content">
+    <header th:replace="~{fragments/admin-layout :: admin-header}"></header>
+
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>권한 관리</h1>
+            <button onclick="openModal('createPermissionModal')" class="btn-primary">+ 새 권한</button>
+        </div>
+
+        <!-- 필터 -->
+        <div class="filter-bar">
+            <select id="resourceTypeFilter" onchange="filterPermissions()" class="form-select">
+                <option value="">모든 리소스 타입</option>
+                <option value="USER">USER</option>
+                <option value="GROUP">GROUP</option>
+                <option value="PERMISSION">PERMISSION</option>
+                <option value="AUDIT">AUDIT</option>
+                <option value="OAUTH2">OAUTH2</option>
+                <option value="SECURITY">SECURITY</option>
+                <option value="SYSTEM">SYSTEM</option>
+            </select>
+        </div>
+
+        <!-- 권한 목록 테이블 -->
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>코드</th>
+                        <th>권한명</th>
+                        <th>리소스 타입</th>
+                        <th>작업</th>
+                        <th>설명</th>
+                        <th>액션</th>
+                    </tr>
+                </thead>
+                <tbody id="permissionTableBody">
+                    <tr>
+                        <td colspan="7" class="loading">권한 목록을 불러오는 중...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 권한 생성 모달 -->
+        <div id="createPermissionModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>새 권한 생성</h2>
+                    <button onclick="closeModal('createPermissionModal')" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="createPermissionForm">
+                        <div class="form-group">
+                            <label for="permCode">코드 * (<code>resource:action</code> 소문자)</label>
+                            <input type="text" id="permCode" required pattern="[a-z][a-z0-9]*:[a-z][a-z0-9]*" title="소문자 resource:action 형식 (예: user:read)" placeholder="예: user:read">
+                        </div>
+                        <div class="form-group">
+                            <label for="permName">권한명 *</label>
+                            <input type="text" id="permName" required placeholder="예: 사용자 정보 조회">
+                        </div>
+                        <div class="form-group">
+                            <label for="resourceType">리소스 타입</label>
+                            <select id="resourceType" class="form-select">
+                                <option value="">선택...</option>
+                                <option value="USER">USER</option>
+                                <option value="GROUP">GROUP</option>
+                                <option value="PERMISSION">PERMISSION</option>
+                                <option value="AUDIT">AUDIT</option>
+                                <option value="OAUTH2">OAUTH2</option>
+                                <option value="SECURITY">SECURITY</option>
+                                <option value="SYSTEM">SYSTEM</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="action">작업</label>
+                            <select id="action" class="form-select">
+                                <option value="">선택...</option>
+                                <option value="READ">READ</option>
+                                <option value="WRITE">WRITE</option>
+                                <option value="DELETE">DELETE</option>
+                                <option value="MANAGE">MANAGE</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="permDescription">설명</label>
+                            <textarea id="permDescription" placeholder="권한 설명"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary">생성</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 권한 수정 모달 -->
+        <div id="editPermissionModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>권한 수정</h2>
+                    <button onclick="closeModal('editPermissionModal')" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="editPermissionForm">
+                        <input type="hidden" id="editPermId">
+                        <div class="form-group">
+                            <label>코드</label>
+                            <p><code id="editPermCode"></code> <small>(코드·리소스 타입·작업은 수정 API 가 받지 않는다 — 이름·설명만)</small></p>
+                        </div>
+                        <div class="form-group">
+                            <label for="editPermName">권한명 *</label>
+                            <input type="text" id="editPermName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="editPermDescription">설명</label>
+                            <textarea id="editPermDescription"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary">저장</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <h3>권한 관리 API</h3>
+            <ul>
+                <li><code>GET /admin/permissions</code> - 전체 권한 조회</li>
+                <li><code>GET /admin/permissions/by-resource?resourceType={type}</code> - 리소스 타입별 필터링</li>
+                <li><code>POST /admin/permissions</code> - 권한 생성</li>
+                <li><code>PUT /admin/permissions/{id}</code> - 권한 수정 (이름·설명만)</li>
+                <li><code>DELETE /admin/permissions/{id}</code> - 권한 삭제</li>
+            </ul>
+        </div>
+    </main>
+</div>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<th:block th:replace="~{fragments/admin-layout :: admin-scripts}"></th:block>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadPermissions();
+    });
+
+    // 오류 본문은 ErrorResponseModel(reason·resultMessage) — admin.js 의 네트워크 실패 형태(message)도 받아 준다
+    let loadedPermissions = [];
+
+    // 인라인 onclick 에는 서버 값을 넣지 않는다 — HTML 이스케이프는 JS 문자열 문맥을 지켜 주지 못한다(브라우저가 엔티티를 먼저 복원한다).
+    // 행 식별자는 data-* 속성(HTML 속성 문맥, 이스케이프 안전)으로 넘기고 클릭은 위임 리스너가 받는다.
+    document.getElementById('permissionTableBody').addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const perm = loadedPermissions[Number(button.dataset.index)];
+        if (!perm) return;
+        if (button.dataset.action === 'edit') openEditModal(perm);
+        if (button.dataset.action === 'delete') deletePermission(perm);
+    });
+
+    function errorText(response) {
+        return response.data?.reason ?? response.data?.resultMessage ?? response.data?.message ?? '';
+    }
+
+    async function loadPermissions(resourceType = '') {
+        const tbody = document.getElementById('permissionTableBody');
+        try {
+            // 필터는 by-resource 라우트 — 목록 라우트는 쿼리 파라미터를 무시한다
+            const response = resourceType
+                ? await apiCall(`/admin/permissions/by-resource?resourceType=${encodeURIComponent(resourceType)}`, 'GET')
+                : await apiCall('/admin/permissions', 'GET');
+            if (response.ok && response.data) {
+                if (response.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="empty">권한이 없습니다.</td></tr>';
+                } else {
+                    // 서버 값은 전부 escapeHtml 을 지난다(stored XSS 방지). 수정 모달은 객체를 HTML 에 직렬화하지 않고 인덱스로 찾는다.
+                    loadedPermissions = response.data;
+                    tbody.innerHTML = response.data.map((perm, index) => `
+                        <tr>
+                            <td>${perm.id}</td>
+                            <td><code>${escapeHtml(perm.code)}</code></td>
+                            <td>${escapeHtml(perm.name)}</td>
+                            <td><span class="tag type">${escapeHtml(perm.resourceType || '-')}</span></td>
+                            <td><span class="tag action">${escapeHtml(perm.action || '-')}</span></td>
+                            <td>${escapeHtml(perm.description || '-')}</td>
+                            <td class="actions">
+                                <button type="button" data-action="edit" data-index="${index}" class="btn-sm">수정</button>
+                                <button type="button" data-action="delete" data-index="${index}" class="btn-sm danger">삭제</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } else {
+                tbody.innerHTML = `<tr><td colspan="7" class="error">불러오기 실패 (HTTP ${response.status}) ${escapeHtml(errorText(response))}</td></tr>`;
+            }
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="7" class="error">오류: ${escapeHtml(error.message)}</td></tr>`;
+        }
+    }
+
+    function filterPermissions() {
+        const resourceType = document.getElementById('resourceTypeFilter').value;
+        loadPermissions(resourceType);
+    }
+
+    document.getElementById('createPermissionForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        try {
+            const response = await apiCall('/admin/permissions', 'POST', {
+                code: document.getElementById('permCode').value,
+                name: document.getElementById('permName').value,
+                description: document.getElementById('permDescription').value || null,
+                resourceType: document.getElementById('resourceType').value || null,
+                action: document.getElementById('action').value || null
+            });
+            if (response.ok) {
+                closeModal('createPermissionModal');
+                loadPermissions();
+                showNotification('권한이 생성되었습니다.', 'success');
+                document.getElementById('createPermissionForm').reset();
+            } else {
+                showNotification(errorText(response) || '생성 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('권한 생성 실패', 'error');
+        }
+    });
+
+    function openEditModal(perm) {
+        document.getElementById('editPermId').value = perm.id;
+        document.getElementById('editPermCode').textContent = perm.code;
+        document.getElementById('editPermName').value = perm.name;
+        document.getElementById('editPermDescription').value = perm.description || '';
+        openModal('editPermissionModal');
+    }
+
+    document.getElementById('editPermissionForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const permId = document.getElementById('editPermId').value;
+        try {
+            const response = await apiCall(`/admin/permissions/${permId}`, 'PUT', {
+                name: document.getElementById('editPermName').value,
+                description: document.getElementById('editPermDescription').value || null
+            });
+            if (response.ok) {
+                closeModal('editPermissionModal');
+                loadPermissions();
+                showNotification('권한이 수정되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || '수정 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('권한 수정 실패', 'error');
+        }
+    });
+
+    async function deletePermission(perm) {
+        const permId = perm.id;
+        if (!confirm(`'${perm.name}' 권한을 삭제하시겠습니까?`)) return;
+        try {
+            const response = await apiCall(`/admin/permissions/${permId}`, 'DELETE');
+            if (response.ok) {
+                loadPermissions();
+                showNotification('권한이 삭제되었습니다.', 'success');
+            } else {
+                showNotification(errorText(response) || '삭제 실패', 'error');
+            }
+        } catch (e) {
+            showNotification('권한 삭제 실패', 'error');
+        }
+    }
+</script>
+</body>
+</html>

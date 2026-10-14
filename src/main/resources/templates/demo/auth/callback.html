@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head th:replace="~{fragments/layout :: head('로그인 콜백 - Demo')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+
+<main class="auth-main">
+    <div class="auth-container">
+        <div class="auth-card callback-card">
+            <div id="loadingSection">
+                <div class="loading-spinner"></div>
+                <h1>처리 중...</h1>
+                <p class="auth-subtitle">소셜 로그인을 처리하고 있습니다.</p>
+            </div>
+
+            <div id="successSection" style="display: none;">
+                <span class="callback-icon success">✅</span>
+                <h1>로그인 성공</h1>
+                <p class="auth-subtitle">소셜 로그인이 완료되었습니다.</p>
+
+                <div class="token-display">
+                    <h3>Access Token</h3>
+                    <div class="token-box">
+                        <code id="accessTokenDisplay"></code>
+                        <button onclick="copyToken('accessTokenDisplay')" class="copy-btn">복사</button>
+                    </div>
+                </div>
+
+                <div class="token-display">
+                    <h3>Refresh Token</h3>
+                    <div class="token-box">
+                        <code id="refreshTokenDisplay"></code>
+                        <button onclick="copyToken('refreshTokenDisplay')" class="copy-btn">복사</button>
+                    </div>
+                </div>
+
+                <a th:href="@{/demo}" class="btn-primary">메인으로 이동</a>
+            </div>
+
+            <div id="errorSection" style="display: none;">
+                <span class="callback-icon error">❌</span>
+                <h1>로그인 실패</h1>
+                <p class="auth-subtitle" id="errorDescription">오류가 발생했습니다.</p>
+                <a th:href="@{/demo/auth/social-login}" class="btn-secondary">다시 시도</a>
+            </div>
+        </div>
+
+        <div th:replace="~{fragments/layout :: result-area}"></div>
+
+        <div class="info-box">
+            <h3>콜백 파라미터</h3>
+            <ul>
+                <li><code>code</code> - Authorization Code</li>
+                <li><code>state</code> - CSRF 보호용 상태값</li>
+                <li><code>error</code> - 오류 코드 (실패 시)</li>
+                <li><code>error_description</code> - 오류 설명</li>
+            </ul>
+        </div>
+    </div>
+</main>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+
+<th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
+<script>
+    document.addEventListener('DOMContentLoaded', async function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const state = urlParams.get('state');
+        const error = urlParams.get('error');
+        const errorDescription = urlParams.get('error_description');
+
+        // URL Fragment에서 토큰 추출 (Implicit Flow인 경우)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+
+        // 쿼리 파라미터 또는 해시 파라미터에서 토큰 추출
+        const accessToken = urlParams.get('access_token') || hashParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token') || hashParams.get('refresh_token');
+
+        if (error) {
+            // 오류 처리
+            showSection('error');
+            document.getElementById('errorDescription').textContent =
+                errorDescription || `오류: ${error}`;
+            return;
+        }
+
+        if (accessToken) {
+            // 토큰이 URL에 바로 포함 (소셜 로그인 콜백 또는 Implicit Flow)
+            saveTokens(accessToken, refreshToken);
+            showSection('success');
+            document.getElementById('accessTokenDisplay').textContent = accessToken;
+            document.getElementById('refreshTokenDisplay').textContent = refreshToken || '없음';
+            return;
+        }
+
+        if (code) {
+            // Authorization Code Flow - 백엔드에서 토큰 교환
+            try {
+                // provider는 state에서 추출하거나 별도로 저장된 값 사용
+                const storedProvider = localStorage.getItem('oauth2_provider') || 'google';
+
+                const response = await apiCall(`/auth/oauth2/${storedProvider}/callback`, 'POST', {
+                    code: code,
+                    state: state
+                });
+
+                showResult(response);
+
+                if (response.ok && response.data) {
+                    saveTokens(response.data.accessToken, response.data.refreshToken);
+                    showSection('success');
+                    document.getElementById('accessTokenDisplay').textContent =
+                        response.data.accessToken || '발급됨';
+                    document.getElementById('refreshTokenDisplay').textContent =
+                        response.data.refreshToken || '없음';
+                } else {
+                    showSection('error');
+                    document.getElementById('errorDescription').textContent =
+                        response.data?.message || '토큰 교환에 실패했습니다.';
+                }
+            } catch (err) {
+                showSection('error');
+                document.getElementById('errorDescription').textContent = err.message;
+            }
+            return;
+        }
+
+        // 파라미터가 없는 경우
+        showSection('error');
+        document.getElementById('errorDescription').textContent =
+            '콜백 파라미터가 없습니다. 소셜 로그인을 다시 시도해주세요.';
+    });
+
+    function showSection(section) {
+        document.getElementById('loadingSection').style.display = 'none';
+        document.getElementById('successSection').style.display = 'none';
+        document.getElementById('errorSection').style.display = 'none';
+        document.getElementById(section + 'Section').style.display = 'block';
+    }
+
+    function copyToken(elementId) {
+        const text = document.getElementById(elementId).textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            alert('클립보드에 복사되었습니다.');
+        });
+    }
+</script>
+
+<style>
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .callback-icon {
+        font-size: 64px;
+        display: block;
+        margin-bottom: 20px;
+    }
+
+    .token-display {
+        margin: 20px 0;
+        text-align: left;
+    }
+
+    .token-box {
+        display: flex;
+        align-items: center;
+        background: #f5f5f5;
+        border-radius: 8px;
+        padding: 10px;
+        margin-top: 8px;
+    }
+
+    .token-box code {
+        flex: 1;
+        word-break: break-all;
+        font-size: 12px;
+    }
+
+    .copy-btn {
+        margin-left: 10px;
+        padding: 5px 10px;
+        background: #4a90d9;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .copy-btn:hover {
+        background: #357abd;
+    }
+</style>
+</body>
+</html>

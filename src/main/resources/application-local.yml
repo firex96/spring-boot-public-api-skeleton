@@ -1,0 +1,74 @@
+# local 프로필 — docker compose(MySQL·Redis)로 띄운 로컬 인프라에 붙는다. 값은 docker-compose.yml·docker/mysql/init 과 짝이다.
+# 실행: docker compose up -d && ./gradlew bootRun   (bootRun 은 SPRING_PROFILES_ACTIVE 가 없으면 local 로 뜬다)
+
+# 논리 키 — 운영에서는 환경변수나 aws·azure·gcp 프로필의 비밀 저장소가 채운다
+db-host: ${DB_HOST:localhost}
+db-port: ${DB_PORT:3306}
+db-reader-username: skeleton_reader
+db-reader-password: skeleton_reader
+db-writer-username: skeleton_writer
+db-writer-password: skeleton_writer
+db-admin-username: skeleton_admin
+db-admin-password: skeleton_admin
+redis-host: ${REDIS_HOST:localhost}
+redis-port: ${REDIS_PORT:6379}
+core-api-url: ${CORE_API_URL:http://localhost:9999}
+jwt-secret: local-only-jwt-signing-secret-change-me-0123456789 # 로컬 전용(32자 이상). 운영 값은 비밀 저장소에
+oidc-issuer: http://localhost:8080
+oauth2-redirect-base-url: http://localhost:8080
+
+spring:
+  datasource:
+    # 로컬 MySQL 8 은 TLS 없이 caching_sha2_password 를 쓰므로 공개키 조회를 허용한다
+    main:
+      read:
+        url: jdbc:mysql://${db-host}:${db-port}/skeleton_main?allowPublicKeyRetrieval=true&useSSL=false
+        hikari:
+          maximum-pool-size: 2
+      write:
+        url: jdbc:mysql://${db-host}:${db-port}/skeleton_main?allowPublicKeyRetrieval=true&useSSL=false
+        hikari:
+          maximum-pool-size: 2
+    auth:
+      read:
+        url: jdbc:mysql://${db-host}:${db-port}/skeleton_auth?allowPublicKeyRetrieval=true&useSSL=false
+        hikari:
+          maximum-pool-size: 2
+      write:
+        url: jdbc:mysql://${db-host}:${db-port}/skeleton_auth?allowPublicKeyRetrieval=true&useSSL=false
+        hikari:
+          maximum-pool-size: 2
+
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+        highlight_sql: false
+        generate_statistics: false
+        session.events.log.LOG_QUERIES_SLOWER_THAN_MS: 1000
+
+  cache:
+    redis:
+      time-to-live: "10s"
+
+  flyway:
+    enabled: true
+
+# Flyway locations — 로컬은 e2e 시드(dml/test)까지 넣는다
+flyway:
+  auth:
+    locations:
+      - classpath:db/migration/auth/ddl
+      - classpath:db/migration/auth/dml/mandatory
+      - classpath:db/migration/auth/dml/test
+
+springdoc:
+  api-docs:
+    enabled: true
+
+oidc:
+  key-id: public-api-skeleton-local
+
+app:
+  mail:
+    demo-mailbox-dir: ${user.home}/.skeleton/demo-mailbox # 로컬 데모 수신함(소유자 전용 파일) — 재설정·인증 토큰이 든 메일을 여기서 읽는다. HTTP·로그로는 내보내지 않는다

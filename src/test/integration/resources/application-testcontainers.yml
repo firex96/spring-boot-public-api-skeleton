@@ -1,0 +1,99 @@
+# Testcontainers 전용 프로파일 — 통합 테스트가 @ActiveProfiles("testcontainers") 로 켠다(integrationTest 태스크의 기본 프로필이기도 하다).
+#
+# 데이터소스 URL·계정과 Flyway 계정은 TestcontainersConfiguration.Initializer 가 컨테이너 값으로 덮는다. 여기의 논리 키는
+# 기본 application.yml 의 나머지 플레이스홀더를 해석시키기 위한 테스트 고정값이다 — 운영 자격증명을 넣지 않는다.
+
+server:
+  port: 0  # 랜덤 포트 사용
+
+db-host: localhost
+db-reader-username: test
+db-reader-password: test
+db-writer-username: test
+db-writer-password: test
+db-admin-username: test
+db-admin-password: test
+redis-host: localhost
+core-api-url: http://localhost:8080
+jwt-secret: test-secret-key-for-jwt-token-signing-must-be-at-least-32-chars
+oidc-issuer: http://localhost:8888
+oauth2-redirect-base-url: http://localhost:8888
+
+spring:
+  threads:
+    virtual:
+      enabled: false # 테스트에서 가상 스레드 비활성화
+
+  datasource:
+    main:
+      read:
+        hikari:
+          maximum-pool-size: 2
+      write:
+        hikari:
+          maximum-pool-size: 2
+    auth:
+      read:
+        hikari:
+          maximum-pool-size: 2
+      write:
+        hikari:
+          maximum-pool-size: 2
+
+  flyway:
+    enabled: false # TestcontainersConfiguration.Initializer 가 true 로 덮어 skeleton_auth 컨테이너에 아래 flyway.auth.locations 를 적용한다 (auth EMF 는 hbm2ddl none)
+
+  data:
+    redis:
+      # Initializer 가 cluster.nodes 를 컨테이너 주소로 덮어쓴다(관리형 Redis 와 같은 단일 엔드포인트 클러스터).
+      cluster:
+        nodes:
+          - localhost:6379
+      ssl:
+        enabled: false
+
+  cache:
+    type: redis
+
+# skeleton_auth 스키마 — Flyway ddl + 필수 dml (e2e 시드 dml/test 는 넣지 않는다). 키 없이 목록만 두면 FlywayProperties 에 바인딩되지 않는다.
+flyway:
+  auth:
+    locations:
+      - classpath:db/migration/auth/ddl
+      - classpath:db/migration/auth/dml/mandatory
+
+jwt:
+  issuer: public-api-skeleton-test
+
+# 보안 설정 (테스트용)
+security:
+  login-protection:
+    enable-brute-force-protection: false
+    enable-ip-blocking: false
+
+oidc:
+  key-id: test-key-id
+
+# OAuth2 소셜 로그인 설정 (테스트용 고정값 — 실제 provider 를 호출하지 않는다)
+oauth2:
+  naver:
+    client-id: test-naver-client-id
+    client-secret: test-naver-client-secret
+    scope:
+      - name
+      - email
+  kakao:
+    client-id: test-kakao-client-id
+    client-secret: test-kakao-client-secret
+    scope: []
+  google:
+    client-id: test-google-client-id
+    client-secret: test-google-client-secret
+    scope:
+      - openid
+      - email
+      - profile
+
+springdoc:
+  api-docs:
+    enabled: false
