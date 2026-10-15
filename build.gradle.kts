@@ -128,6 +128,7 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-localstack")
     testImplementation("software.amazon.awssdk:secretsmanager")
+    testImplementation("com.github.nagyesta.lowkey-vault:lowkey-vault-testcontainers:7.3.127") // azure 프로필 검증용 Key Vault 에뮬레이터
     testImplementation("org.testcontainers:testcontainers-mysql")
 
     testRuntimeOnly("org.jetbrains.kotlin:kotlin-test-junit5")

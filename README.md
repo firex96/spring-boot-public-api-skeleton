@@ -268,7 +268,7 @@ SPRING_PROFILES_ACTIVE=gcp GCP_PROJECT_ID=<project> DB_HOST=… java -jar app.wa
 | 클라우드 | `build.gradle.kts` | 리소스 |
 |---|---|---|
 | AWS | `spring-cloud-aws-dependencies`, `spring-cloud-aws-starter-secrets-manager`, `testcontainers-localstack`, `awssdk:secretsmanager` | `application-aws.yml`, `AwsSecretsManagerProfileIntegrationTest` |
-| Azure | `spring-cloud-azure-dependencies`, `spring-cloud-azure-starter-keyvault` | `application-azure.yml` |
+| Azure | `spring-cloud-azure-dependencies`, `spring-cloud-azure-starter-keyvault`, `lowkey-vault-testcontainers` | `application-azure.yml`, `AzureKeyVaultProfileIntegrationTest` |
 | GCP | `spring-cloud-gcp-dependencies`, `spring-cloud-gcp-starter-secretmanager` | `application-gcp.yml`, `SecretKeyCoverageTest` 의 GCP 검사 |
 
 기본 `application.yml` 의 `spring.cloud.*` 비활성 블록에서도 해당 줄을 지운다.

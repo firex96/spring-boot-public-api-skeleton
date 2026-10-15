@@ -9,6 +9,8 @@ spring:
           property-source-enabled: true
           property-sources[0]:
             endpoint: ${AZURE_KEYVAULT_ENDPOINT}
+            # 에뮬레이터·사설 엔드포인트처럼 인증 challenge 의 리소스가 볼트 주소와 다를 때만 false 로 둔다
+            challenge-resource-verification-enabled: ${AZURE_KEYVAULT_CHALLENGE_RESOURCE_VERIFICATION_ENABLED:true}
           retry:
             mode: exponential
             exponential:
