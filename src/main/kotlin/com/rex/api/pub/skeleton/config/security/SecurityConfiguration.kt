@@ -1,15 +1,12 @@
 package com.rex.api.pub.skeleton.config.security
 
 import com.rex.api.pub.skeleton.config.audit.AuditProperties
-import jakarta.servlet.http.HttpServletRequest
-import jakarta.servlet.http.HttpServletResponse
+import com.rex.api.pub.skeleton.enums.ErrorCode
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
-import org.springframework.http.HttpStatus
-import org.springframework.http.MediaType
 import org.springframework.security.access.expression.method.DefaultMethodSecurityExpressionHandler
 import org.springframework.security.access.expression.method.MethodSecurityExpressionHandler
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
@@ -23,7 +20,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.CorsConfigurationSource
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
-import tools.jackson.databind.json.JsonMapper
 
 @Configuration
 @EnableWebSecurity
@@ -32,7 +28,7 @@ import tools.jackson.databind.json.JsonMapper
 @Profile("!test")
 class SecurityConfiguration(
     private val jwtAuthenticationFilter: JwtAuthenticationFilter,
-    private val objectMapper: JsonMapper,
+    private val securityErrorResponseWriter: SecurityErrorResponseWriter,
     private val customPermissionEvaluator: CustomPermissionEvaluator,
     private val auditProperties: AuditProperties,
 ) {
@@ -121,34 +117,12 @@ class SecurityConfiguration(
     }
 
     private fun customAuthenticationEntryPoint(): AuthenticationEntryPoint =
-        AuthenticationEntryPoint { request, response, authException ->
-            response.status = HttpStatus.UNAUTHORIZED.value()
-            response.contentType = MediaType.APPLICATION_JSON_VALUE
-
-            val body =
-                mapOf(
-                    "status" to HttpStatus.UNAUTHORIZED.value(),
-                    "error" to "Unauthorized",
-                    "message" to "인증이 필요합니다",
-                    "path" to request.requestURI,
-                )
-
-            objectMapper.writeValue(response.outputStream, body)
+        AuthenticationEntryPoint { _, response, _ ->
+            securityErrorResponseWriter.write(response, ErrorCode.UNAUTHORIZED_ERROR, "인증이 필요합니다")
         }
 
     private fun customAccessDeniedHandler(): AccessDeniedHandler =
-        AccessDeniedHandler { request, response, accessDeniedException ->
-            response.status = HttpStatus.FORBIDDEN.value()
-            response.contentType = MediaType.APPLICATION_JSON_VALUE
-
-            val body =
-                mapOf(
-                    "status" to HttpStatus.FORBIDDEN.value(),
-                    "error" to "Forbidden",
-                    "message" to "접근 권한이 없습니다",
-                    "path" to request.requestURI,
-                )
-
-            objectMapper.writeValue(response.outputStream, body)
+        AccessDeniedHandler { _, response, _ ->
+            securityErrorResponseWriter.write(response, ErrorCode.FORBIDDEN_ERROR, "접근 권한이 없습니다")
         }
 }

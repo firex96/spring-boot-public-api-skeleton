@@ -7,6 +7,7 @@ import com.rex.api.pub.skeleton.exception.ApiCallException
 import com.rex.api.pub.skeleton.exception.ClientBadRequestException
 import com.rex.api.pub.skeleton.exception.InvalidRequestParameterException
 import com.rex.api.pub.skeleton.exception.ItemNotFoundException
+import com.rex.api.pub.skeleton.exception.auth.AuthorizationException
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.string.shouldContain
 import jakarta.validation.Valid
@@ -19,6 +20,9 @@ import org.springframework.context.annotation.Import
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.AccessDeniedException
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.ContextConfiguration
 import org.springframework.test.web.servlet.MockMvc
@@ -148,6 +152,28 @@ class GlobalExceptionHandlerTest(
                         .andExpect(jsonPath("$.reason").value("Element not found"))
                 }
 
+                it("should handle AuthorizationException with 403 FORBIDDEN_ERROR") {
+                    mockMvc
+                        .perform(get("/test/exception/authorization").with(user("e2e-member")))
+                        .andExpect(status().isForbidden)
+                        .andExpect(jsonPath("$.code").value("FORBIDDEN_ERROR"))
+                        .andExpect(jsonPath("$.divisionCode").value("G008"))
+                }
+
+                it("should map AccessDeniedException of an authenticated user to 403 FORBIDDEN_ERROR") {
+                    mockMvc
+                        .perform(get("/test/exception/access-denied").with(user("e2e-member")))
+                        .andExpect(status().isForbidden)
+                        .andExpect(jsonPath("$.code").value("FORBIDDEN_ERROR"))
+                }
+
+                it("should map AccessDeniedException of an anonymous request to 401 UNAUTHORIZED_ERROR") {
+                    mockMvc
+                        .perform(get("/test/exception/access-denied").with(anonymous()))
+                        .andExpect(status().isUnauthorized)
+                        .andExpect(jsonPath("$.code").value("UNAUTHORIZED_ERROR"))
+                }
+
                 it("should handle generic Exception with 500 status") {
                     mockMvc
                         .perform(get("/test/exception/generic"))
@@ -191,6 +217,12 @@ class TestExceptionController {
 
     @GetMapping("/generic")
     fun throwGenericException(): ResponseEntity<Any> = throw RuntimeException("Unexpected error occurred")
+
+    @GetMapping("/authorization")
+    fun throwAuthorizationException(): ResponseEntity<Any> = throw AuthorizationException("그룹을 관리할 권한이 없습니다")
+
+    @GetMapping("/access-denied")
+    fun throwAccessDeniedException(): ResponseEntity<Any> = throw AccessDeniedException("Access Denied")
 }
 
 /**

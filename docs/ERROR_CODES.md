@@ -16,25 +16,33 @@
 
 ## 에러 응답 형식
 
-모든 에러 응답은 다음 형식을 따릅니다:
+OAuth2 프로토콜 엔드포인트를 뺀 모든 에러 응답(필터 체인의 401·403, 메서드 보안 거부, 업무 예외)은 `ErrorResponseModel` 형식을 따릅니다:
 
 ```json
 {
-  "status": 400,
-  "divisionCode": "G001",
-  "resultMsg": "Bad Request Exception"
+  "code": "FORBIDDEN_ERROR",
+  "reason": "접근 권한이 없습니다",
+  "errors": null,
+  "status": 403,
+  "divisionCode": "G008",
+  "resultMessage": "Forbidden Exception"
 }
 ```
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
+| code | string | `ErrorCode` 이름 |
+| reason | string? | 상세 사유 |
+| errors | array? | 필드 검증 오류 (`field`, `value`, `reason`) |
 | status | int | HTTP 상태 코드 |
 | divisionCode | string | 에러 구분 코드 |
-| resultMsg | string | 에러 메시지 |
+| resultMessage | string | 에러 메시지 |
+
+필터 체인 단계(인증 없음 401, URL 인가 거부 403)는 `SecurityErrorResponseWriter` 가, 컨트롤러 이후 단계는 `GlobalExceptionHandler` 가 같은 모델로 씁니다. 인증 없이 메서드 보안에 거부되면 403 이 아니라 401 입니다.
 
 ### OAuth2 에러 응답
 
-OAuth2 관련 에러는 RFC 6749 표준을 따릅니다:
+OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`, 그리고 `/oauth2/authorize` 의 리다이렉트 전 오류)는 RFC 6749 §5.2 형식을 따릅니다:
 
 ```json
 {

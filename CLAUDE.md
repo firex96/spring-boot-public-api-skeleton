@@ -421,6 +421,14 @@ db/migration/{schema}/
 - `ErrorCode` enum으로 표준화된 에러 코드
 - `GlobalExceptionHandler`에서 중앙 처리
 - 주요 예외: `ItemNotFoundException`, `ClientBadRequestException`
+- **오류 응답 형식은 두 가지뿐이다.**
+
+  | 경로 | 형식 |
+  |---|---|
+  | OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`, `/oauth2/authorize` 의 리다이렉트 전 오류) | `OAuth2ErrorResponseModel` — RFC 6749 §5.2 `{error, error_description, error_uri}` |
+  | 그 밖의 모든 401·403·4xx (필터 체인 거부, `@PreAuthorize` 거부, 업무 예외) | `ErrorResponseModel` |
+
+  필터 체인 단계는 `SecurityErrorResponseWriter`, 컨트롤러 이후는 `GlobalExceptionHandler` 가 같은 모델을 쓴다. 필터 체인 핸들러에 임시 Map 본문을 두지 않는다. 익명 요청의 `AccessDeniedException` 은 401 이다. 검출: `ErrorResponseFormatE2ETest`.
 
 ### 6. Caching Pattern
 - `@CacheableNullSafe` 사용 (null 캐싱 방지)

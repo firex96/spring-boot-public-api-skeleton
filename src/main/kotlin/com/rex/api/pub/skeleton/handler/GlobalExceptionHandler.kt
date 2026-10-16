@@ -8,6 +8,7 @@ import com.rex.api.pub.skeleton.exception.ErrorMessageService
 import com.rex.api.pub.skeleton.exception.ItemNotFoundException
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
+import com.rex.api.pub.skeleton.exception.auth.AuthorizationException
 import com.rex.api.pub.skeleton.exception.auth.DuplicateResourceException
 import com.rex.api.pub.skeleton.exception.auth.DuplicateUserException
 import com.rex.api.pub.skeleton.exception.auth.ForbiddenException
@@ -22,6 +23,8 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.security.access.AccessDeniedException
+import org.springframework.security.authentication.AnonymousAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.MissingRequestHeaderException
 import org.springframework.web.bind.MissingServletRequestParameterException
@@ -115,13 +118,28 @@ class GlobalExceptionHandler(
         return ResponseEntity<ErrorResponseModel>(response, HTTP_STATUS_FORBIDDEN)
     }
 
+    /** 업무 계층의 권한 거부(그룹·권한 관리) — 핸들러가 없으면 캐치올이 잡아 403 이어야 할 응답이 500 으로 나간다. */
+    @ExceptionHandler(AuthorizationException::class)
+    protected fun handleAuthorizationException(ex: AuthorizationException): ResponseEntity<ErrorResponseModel> {
+        logger.warn("AuthorizationException: {}", ex.message)
+        val response: ErrorResponseModel = ErrorResponseModel.of(ErrorCode.FORBIDDEN_ERROR, ex.message)
+        return ResponseEntity<ErrorResponseModel>(response, HTTP_STATUS_FORBIDDEN)
+    }
+
     /**
      * 메서드 레벨 `@PreAuthorize` 거부 — Spring Security 가 던지는 `AuthorizationDeniedException`(`AccessDeniedException` 하위)이다.
      * 이 핸들러가 없으면 맨 아래 `Exception` 캐치올이 잡아 **403 이어야 할 응답이 500** 으로 나간다(필터 체인 거부만 403 이었다).
+     *
+     * 이 어드바이스가 예외를 먼저 잡으므로 `ExceptionTranslationFilter` 의 익명 → 엔트리포인트 분기가 돌지 않는다.
+     * 그래서 인증되지 않은 요청의 거부는 여기서 401 로 바꾼다 — 필터 체인 엔트리포인트와 같은 응답이다.
      */
     @ExceptionHandler(AccessDeniedException::class)
     protected fun handleAccessDeniedException(ex: AccessDeniedException): ResponseEntity<ErrorResponseModel> {
         logger.warn("AccessDeniedException: {}", ex.message)
+        val authentication = SecurityContextHolder.getContext().authentication
+        if (authentication == null || authentication is AnonymousAuthenticationToken) {
+            return ResponseEntity<ErrorResponseModel>(ErrorResponseModel.of(ErrorCode.UNAUTHORIZED_ERROR, ex.message), HTTP_STATUS_UNAUTHORIZED)
+        }
         val response: ErrorResponseModel = ErrorResponseModel.of(ErrorCode.FORBIDDEN_ERROR, ex.message)
         return ResponseEntity<ErrorResponseModel>(response, HTTP_STATUS_FORBIDDEN)
     }

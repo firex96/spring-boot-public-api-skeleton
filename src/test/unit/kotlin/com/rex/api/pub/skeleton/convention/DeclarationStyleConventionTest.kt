@@ -100,7 +100,8 @@ class DeclarationStyleConventionTest : BehaviorSpec({
         private const val KOTLIN_CLASS_KIND = 1
 
         /** 외부 계약(OIDC Discovery·UserInfo 표준 필드명)이라 snake_case 를 쓰는 Model — 그 외 Model 은 프로퍼티명과 같아야 한다. */
-        private val SNAKE_CASE_CONTRACT = setOf("OpenIdConfigurationModel", "UserInfoModel", "OidcTokenResponseModel") // OIDC Discovery · userinfo · 토큰 응답(RFC 6749 §5.1)
+        // OIDC Discovery · userinfo · 토큰 응답(RFC 6749 §5.1) · 오류 응답(§5.2)
+        private val SNAKE_CASE_CONTRACT = setOf("OpenIdConfigurationModel", "UserInfoModel", "OidcTokenResponseModel", "OAuth2ErrorResponseModel")
 
         private fun scan(vararg packages: String): List<KClass<*>> {
             val provider = ClassPathScanningCandidateComponentProvider(false).apply { addIncludeFilter { _, _ -> true } }
