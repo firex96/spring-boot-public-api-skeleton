@@ -16,6 +16,12 @@ interface EmailVerificationTokenRepository : JpaRepository<EmailVerificationToke
 
     fun findByUserIdAndIsVerifiedFalseOrderByCreatedAtDesc(userId: Long): List<EmailVerificationTokenEntity>
 
+    /**
+     * 그 이메일을 실제로 인증했는가 — `verifiedAt` 은 링크 확인(`markAsVerified`)만 채운다.
+     * `isVerified` 로 보면 안 된다: 재요청 때의 무효화(`invalidateAllByUserId`)도 `isVerified=true` 를 쓴다.
+     */
+    fun existsByUserIdAndEmailAndVerifiedAtIsNotNull(userId: Long, email: String): Boolean
+
     @Modifying
     @Query("UPDATE EmailVerificationTokenEntity t SET t.isVerified = true WHERE t.userId = :userId AND t.isVerified = false")
     fun invalidateAllByUserId(@Param("userId") userId: Long): Int

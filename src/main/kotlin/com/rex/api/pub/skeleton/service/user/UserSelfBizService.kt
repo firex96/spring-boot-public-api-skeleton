@@ -257,9 +257,11 @@ class UserSelfBizService(
 
     // ===== 프로필 관리 =====
 
-    fun getProfile(userId: Long): UserProfileDto =
-        userEntityService.getUserProfileById(userId)
+    fun getProfile(userId: Long): UserProfileDto {
+        val user = userEntityService.getUserById(userId) ?: throw ResourceNotFoundException("사용자를 찾을 수 없습니다")
+        return userEntityService.getUserProfileById(userId, tokenEntityService.existsVerifiedEmail(userId, user.email))
             ?: throw ResourceNotFoundException("사용자를 찾을 수 없습니다")
+    }
 
     @Transactional(transactionManager = "authTransactionManager")
     fun updateProfile(userId: Long, request: UserProfileUpdateDto): UserProfileDto {

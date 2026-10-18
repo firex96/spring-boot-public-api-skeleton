@@ -481,10 +481,11 @@ interface ExternalApi {
 - 방식은 `client_secret_basic`(헤더)·`client_secret_post`(폼) 둘이고 한 요청에 하나만 — `ClientCredentialsResolver`(`config/security`)가 꺼낸다. `invalid_client` 는 401 + `WWW-Authenticate: Basic realm="oauth2"`
 - 검출: `ClientCredentialsResolverTest`(유닛) · `OAuth2AuthorizationControllerTest`(Basic·헤더) · `OAuth2AuthorizationE2ETest`「클라이언트 인증 방식」
 
-### 9-2b. OIDC userinfo
+### 9-2b. OIDC userinfo · email_verified
 - `/oauth2/userinfo` 는 **이 인가 서버가 발급한 access 토큰**만 받는다(`OAuth2AuthorizationBizService.resolveUserInfoGrant` — 서명·만료, `oauth2_access_tokens` 활성 기록, 사용자 주체, `openid` scope). 1st-party 로그인 토큰은 받지 않는다. API 체인에서는 permitAll 이고 컨트롤러가 Bearer 를 직접 꺼낸다. 오류는 RFC 6750(401 `invalid_token`·403 `insufficient_scope` + `WWW-Authenticate`)
 - 클레임은 토큰 scope 만큼만(`profile`·`email`), 나머지는 응답에서 빠진다(`UserInfoModel` `NON_NULL`)
-- 검출: `OAuth2AuthorizationBizServiceUserInfoTest`(유닛) · `OidcE2ETest`
+- `email_verified` 의 정본은 `TokenEntityService.existsVerifiedEmail` — 현재 이메일의 인증 토큰에 `verified_at` 이 있는가. `is_verified` 로 보지 않는다(재요청 무효화도 `is_verified=true` 를 쓴다). userinfo · id_token · `GET /user/profile` 이 같은 규칙을 쓴다
+- 검출: `OAuth2AuthorizationBizServiceUserInfoTest`(유닛) · `EmailVerifiedQueryIntegrationTest`(실제 MySQL) · `OidcE2ETest` · `EmailVerifiedE2ETest`
 
 ### 9-3. 브라우저 세션 체인 (소셜 로그인·브라우저 흐름)
 - 필터 체인은 둘이다. **브라우저 체인**(`@Order(1)`, 경로 정본 `config/security/browser/BrowserSecurityPaths`)은 세션(`SKELETON_SESSION`, Spring Session Redis)·CSRF 를 쓰고 JWT 를 읽지 않는다. **API 체인**(`@Order(2)`)은 STATELESS·Bearer 그대로다. 브라우저 체인은 CORS 를 끈다(쿠키를 싣는 경로를 교차 출처에 열지 않는다)

@@ -30,8 +30,9 @@ interface AuthMapper {
 
     // ===== User Entity ↔ DTO (EntityService에서 사용) =====
 
-    @Mapping(target = "emailVerified", expression = "java(entity.getEmail() != null)")
-    fun toUserProfileDto(entity: UserEntity): UserProfileDto
+    /** [emailVerified] 는 호출자가 인증 기록(`TokenEntityService.existsVerifiedEmail`)으로 정한다 — 이메일 유무로 추정하지 않는다. */
+    @Mapping(target = "emailVerified", source = "emailVerified")
+    fun toUserProfileDto(entity: UserEntity, emailVerified: Boolean): UserProfileDto
 
     /** 내부 DTO — 비밀번호 해시·상태 포함. BizService 까지만 올라간다. */
     fun toUserDto(entity: UserEntity): UserDto

@@ -34,8 +34,8 @@ class UserEntityService(
     fun getActiveUserByLoginId(loginId: String): UserDto? =
         userRepository.findByLoginIdAndStatus(loginId, UserStatus.ACTIVE).getOrNull()?.let { mapper.toUserDto(it) }
 
-    fun getUserProfileById(userId: Long): UserProfileDto? =
-        userRepository.findByIdOrNull(userId)?.let { mapper.toUserProfileDto(it) }
+    fun getUserProfileById(userId: Long, emailVerified: Boolean): UserProfileDto? =
+        userRepository.findByIdOrNull(userId)?.let { mapper.toUserProfileDto(it, emailVerified) }
 
     fun existsById(userId: Long): Boolean = userRepository.existsById(userId)
 

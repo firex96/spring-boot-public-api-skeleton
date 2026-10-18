@@ -2,6 +2,7 @@ package com.rex.api.pub.skeleton.service.oidc
 
 import com.rex.api.pub.skeleton.config.security.OidcProperties
 import com.rex.api.pub.skeleton.dto.auth.UserDto
+import com.rex.api.pub.skeleton.persistence.jpa.service.auth.TokenEntityService
 import io.jsonwebtoken.Jwts
 import org.springframework.stereotype.Service
 import java.time.Instant
@@ -12,6 +13,7 @@ import java.util.UUID
 class IdTokenBizService(
     private val oidcProperties: OidcProperties,
     private val jwkBizService: JwkBizService,
+    private val tokenEntityService: TokenEntityService,
 ) {
     fun generateIdToken(
         user: UserDto,
@@ -48,7 +50,7 @@ class IdTokenBizService(
         if (scopes.contains("email")) {
             user.email?.let {
                 claims["email"] = it
-                claims["email_verified"] = true // 이메일 인증 상태 (추후 구현)
+                claims["email_verified"] = tokenEntityService.existsVerifiedEmail(user.id, it) // 링크 인증 기록이 정본
             }
         }
 

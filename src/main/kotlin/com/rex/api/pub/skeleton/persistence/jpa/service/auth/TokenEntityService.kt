@@ -57,6 +57,10 @@ class TokenEntityService(
             ),
         )
 
+    /** `email_verified` 의 정본 — 현재 이메일을 링크로 인증한 기록이 있는가. 이메일이 없으면 false. */
+    fun existsVerifiedEmail(userId: Long, email: String?): Boolean =
+        email != null && emailVerificationTokenRepository.existsByUserIdAndEmailAndVerifiedAtIsNotNull(userId, email)
+
     @Transactional(transactionManager = "authTransactionManager")
     fun markEmailVerificationTokenVerified(id: Long) {
         val token = emailVerificationTokenRepository.findById(id).getOrNull() ?: return

@@ -972,7 +972,7 @@ ID Token 검증을 위한 공개 키 정보를 반환합니다.
 
 **`Authorization: Bearer <이 인가 서버가 발급한 access 토큰>`** — `openid` scope 를 받은 활성 토큰이어야 한다. `POST /auth/login` 의 1st-party 토큰, client_credentials 토큰(사용자 없음), 폐기·만료 토큰은 받지 않는다.
 
-클레임은 토큰의 scope 만큼만 싣는다 — `profile` → `name`·`nickname`·`picture`·`updated_at`, `email` → `email`·`email_verified`.
+클레임은 토큰의 scope 만큼만 싣는다 — `profile` → `name`·`nickname`·`picture`·`updated_at`, `email` → `email`·`email_verified`. `email_verified` 는 현재 이메일을 인증 링크로 확인한 기록이 있을 때만 `true` 다.
 
 #### Response `200 OK` (scope `openid profile email`)
 

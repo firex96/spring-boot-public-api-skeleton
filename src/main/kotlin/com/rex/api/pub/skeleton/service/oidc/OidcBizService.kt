@@ -2,6 +2,7 @@ package com.rex.api.pub.skeleton.service.oidc
 
 import com.rex.api.pub.skeleton.dto.oidc.UserInfoDto
 import com.rex.api.pub.skeleton.exception.ItemNotFoundException
+import com.rex.api.pub.skeleton.persistence.jpa.service.auth.TokenEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -15,6 +16,7 @@ import java.time.ZoneOffset
 class OidcBizService(
     private val userEntityService: UserEntityService,
     private val jwkBizService: JwkBizService,
+    private val tokenEntityService: TokenEntityService,
 ) {
     /**
      * userinfo 클레임 — 토큰이 받은 scope 만큼만 싣는다(OIDC Core §5.4). `profile` → name·nickname·picture·updated_at,
@@ -30,7 +32,7 @@ class OidcBizService(
             nickname = user.nickname.takeIf { profile },
             picture = user.profileImage.takeIf { profile },
             email = user.email.takeIf { email },
-            emailVerified = (user.email != null).takeIf { email },
+            emailVerified = if (email && user.email != null) tokenEntityService.existsVerifiedEmail(user.id, user.email) else null,
             updatedAt = if (profile) user.updatedAt.toEpochSecond(ZoneOffset.UTC) else null,
         )
     }
