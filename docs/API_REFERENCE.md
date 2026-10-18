@@ -265,7 +265,7 @@ curl -X POST https://api.example.com/auth/logout \
 
 소셜 로그인 콜백 (리다이렉트)
 
-OAuth Provider로부터의 콜백을 처리합니다. 성공 시 프론트엔드로 토큰과 함께 리다이렉트됩니다.
+OAuth Provider로부터의 콜백을 처리합니다. state 를 먼저 소비하고, 성공하면 **토큰을 URL 에 싣지 않고** 서버에 60초 동안 맡긴 뒤(교환 대기) 브라우저 세션에 로그인시키고 쿼리 없이 리다이렉트합니다. 세션 ID 는 이때 바뀝니다(세션 고정 방지).
 
 #### Query Parameters
 
@@ -276,8 +276,39 @@ OAuth Provider로부터의 콜백을 처리합니다. 성공 시 프론트엔드
 
 #### Response `302 Redirect`
 
-성공: `/auth/social/success?accessToken=...&refreshToken=...&expiresIn=...`
-실패: `/auth/social/error?error=...&description=...`
+성공: `/demo/auth/callback` (쿼리 없음) — 페이지가 `POST /auth/session/token` 으로 토큰을 받는다
+실패: `/demo/auth/callback?error=...&error_description=...` (`invalid_state` 포함)
+
+---
+
+### POST /auth/session/token
+
+소셜 콜백 토큰 교환 — 콜백이 맡겨 둔 토큰을 **한 번만** 돌려준다. 브라우저 체인(세션 쿠키 `SKELETON_SESSION` + CSRF 헤더)을 탄다.
+
+#### Headers
+
+| 헤더 | 설명 |
+|------|------|
+| Cookie | `SKELETON_SESSION=...` (콜백이 바꾼 세션) |
+| X-CSRF-TOKEN | 데모 콜백 페이지의 `data-token` 값 (헤더 이름은 `data-header`) |
+
+#### Response `200 OK`
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
+}
+```
+
+#### Error Responses
+
+| 상태 | 설명 |
+|------|------|
+| 401 | 로그인하지 않은 세션, 교환할 토큰 없음(이미 꺼냄·60초 만료) — `ErrorResponseModel` |
+| 403 | CSRF 헤더 없음·불일치 — `ErrorResponseModel` |
 
 ---
 

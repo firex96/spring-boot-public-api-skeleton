@@ -67,7 +67,10 @@ OAuth2 인증 완료 후 Provider로부터의 콜백을 처리하고, 프론트�
 3. 시스템이 Provider API로 사용자 정보를 조회합니다.
 4. 시스템이 기존 사용자를 찾거나 새 사용자를 생성합니다.
 5. 시스템이 세션과 JWT 토큰을 생성합니다.
-6. 시스템이 프론트엔드 success 페이지로 리다이렉트합니다.
+6. 시스템이 토큰을 Redis `browser:token-handoff:{userSessionId}` 에 60초 동안 맡깁니다(URL 에 싣지 않는다).
+7. 시스템이 브라우저 세션 ID 를 바꾸고(세션 고정 방지) 그 세션에 사용자를 로그인시킵니다.
+8. 시스템이 쿼리 없이 `/demo/auth/callback` 으로 리다이렉트합니다.
+9. 페이지가 세션 쿠키와 CSRF 헤더로 `POST /auth/session/token` 을 한 번 호출해 토큰을 받습니다(`GETDEL` — 두 번째는 401).
 
 ### 대안 흐름
 - **A0: state 불일치·만료·재사용·다른 세션** → 코드 교환 없이 `/demo/auth/callback?error=invalid_state` 로 리다이렉트(로그인 CSRF 차단)
@@ -82,8 +85,8 @@ OAuth2 인증 완료 후 Provider로부터의 콜백을 처리하고, 프론트�
 - Query: `error_description` (선택) - 에러 설명
 
 ### 출력
-- 성공: `/auth/social/success?accessToken=...&refreshToken=...&expiresIn=...`로 리다이렉트
-- 실패: `/auth/social/error?error=...&description=...`로 리다이렉트
+- 성공: `/demo/auth/callback` 로 리다이렉트(쿼리 없음, 토큰은 `POST /auth/session/token` 으로)
+- 실패: `/demo/auth/callback?error=...&error_description=...` 로 리다이렉트
 
 ---
 
@@ -306,7 +309,12 @@ Browser                         Backend                          Provider
    |                               |-- exchange code --------------->|
    |                               |<-- tokens / user info ----------|
    |                               |-- find user · create session · JWT
-   |<-- 302 /demo/auth/callback ---|                                 |
+   |                               |-- 토큰 → Redis browser:token-handoff:{userSessionId} (60초)
+   |                               |-- 세션 ID 교체 + SecurityContext 저장
+   |<-- 302 /demo/auth/callback ---|   (쿼리 없음 — 토큰은 URL 에 없다)
+   |-- POST /auth/session/token (쿠키 + CSRF 헤더) ->|               |
+   |                               |-- GETDEL handoff                |
+   |<-- 200 {accessToken, refreshToken} (한 번만) ---|               |
 ```
 
 ### 소셜 로그인 흐름 — 네이티브 클라이언트 (코드 교환)

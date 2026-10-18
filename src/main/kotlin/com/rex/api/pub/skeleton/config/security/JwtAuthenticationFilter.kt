@@ -7,7 +7,6 @@ import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
-import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
@@ -40,29 +39,14 @@ class JwtAuthenticationFilter(
                     val sessionInfo = authBizService.validateSession(payload.sessionId)
 
                     if (sessionInfo != null && !sessionInfo.revoked) {
-                        val authorities =
-                            buildList {
-                                // 그룹을 ROLE로 변환
-                                sessionInfo.groups.forEach { group ->
-                                    add(SimpleGrantedAuthority("ROLE_$group"))
-                                }
-                                // 권한 추가
-                                sessionInfo.permissions.forEach { permission ->
-                                    add(SimpleGrantedAuthority(permission))
-                                }
-                            }
-
-                        val authentication =
-                            UsernamePasswordAuthenticationToken(
-                                AuthenticatedUser(
-                                    userId = sessionInfo.userId,
-                                    sessionId = sessionInfo.sessionId,
-                                    groups = sessionInfo.groups,
-                                    permissions = sessionInfo.permissions,
-                                ),
-                                null,
-                                authorities,
+                        val user =
+                            AuthenticatedUser(
+                                userId = sessionInfo.userId,
+                                sessionId = sessionInfo.sessionId,
+                                groups = sessionInfo.groups,
+                                permissions = sessionInfo.permissions,
                             )
+                        val authentication = UsernamePasswordAuthenticationToken(user, null, user.authorities())
 
                         SecurityContextHolder.getContext().authentication = authentication
                     }

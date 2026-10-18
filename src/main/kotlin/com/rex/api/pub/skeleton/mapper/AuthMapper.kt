@@ -4,6 +4,7 @@ import com.rex.api.pub.skeleton.config.MapstructConfiguration
 import com.rex.api.pub.skeleton.dto.auth.AccessTokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.EmailVerificationTokenDto
 import com.rex.api.pub.skeleton.dto.auth.PasswordResetTokenDto
+import com.rex.api.pub.skeleton.dto.auth.SessionInfo
 import com.rex.api.pub.skeleton.dto.auth.TokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.UserDto
 import com.rex.api.pub.skeleton.dto.auth.UserInfoDto
@@ -12,6 +13,7 @@ import com.rex.api.pub.skeleton.dto.user.UserProfileDto
 import com.rex.api.pub.skeleton.dto.user.UserSessionDto
 import com.rex.api.pub.skeleton.model.auth.AccessTokenResponseModel
 import com.rex.api.pub.skeleton.model.auth.AuthUserInfoModel
+import com.rex.api.pub.skeleton.model.auth.BrowserPrincipalModel
 import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
 import com.rex.api.pub.skeleton.model.user.UserProfileModel
 import com.rex.api.pub.skeleton.model.user.UserSessionModel
@@ -68,6 +70,8 @@ interface AuthMapper {
     fun toAuthUserInfoModel(dto: UserInfoDto): AuthUserInfoModel
 
     fun toTokenResponseModel(dto: TokenResponseDto): TokenResponseModel
+
+    fun toBrowserPrincipalModel(sessionInfo: SessionInfo): BrowserPrincipalModel
 
     fun toAccessTokenResponseModel(dto: AccessTokenResponseDto): AccessTokenResponseModel
 }

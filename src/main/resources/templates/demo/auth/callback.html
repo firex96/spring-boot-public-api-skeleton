@@ -7,6 +7,8 @@
 <main class="auth-main">
     <div class="auth-container">
         <div class="auth-card callback-card">
+            <!-- 토큰 교환(POST /auth/session/token)의 CSRF 토큰 — 이 페이지는 브라우저 체인을 탄다 -->
+            <span id="csrf" hidden th:attr="data-token=${_csrf.token},data-header=${_csrf.headerName}"></span>
             <div id="loadingSection">
                 <div class="loading-spinner"></div>
                 <h1>처리 중...</h1>
@@ -48,11 +50,10 @@
         <div th:replace="~{fragments/layout :: result-area}"></div>
 
         <div class="info-box">
-            <h3>콜백 파라미터</h3>
+            <h3>콜백 처리</h3>
             <ul>
-                <li><code>code</code> - Authorization Code</li>
-                <li><code>state</code> - CSRF 보호용 상태값</li>
-                <li><code>error</code> - 오류 코드 (실패 시)</li>
+                <li>성공 — 서버가 쿼리 없이 이 페이지로 보낸다. 페이지는 세션 쿠키와 CSRF 헤더로 <code>POST /auth/session/token</code> 을 한 번 호출해 토큰을 받는다</li>
+                <li><code>error</code> - 오류 코드 (실패 시, <code>invalid_state</code> 는 이 브라우저가 시작한 로그인이 아님)</li>
                 <li><code>error_description</code> - 오류 설명</li>
             </ul>
         </div>
@@ -68,13 +69,6 @@
         const error = urlParams.get('error');
         const errorDescription = urlParams.get('error_description');
 
-        // URL Fragment에서 토큰 추출 (Implicit Flow인 경우)
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-
-        // 쿼리 파라미터 또는 해시 파라미터에서 토큰 추출
-        const accessToken = urlParams.get('access_token') || hashParams.get('access_token');
-        const refreshToken = urlParams.get('refresh_token') || hashParams.get('refresh_token');
-
         if (error) {
             // 오류 처리
             showSection('error');
@@ -83,19 +77,26 @@
             return;
         }
 
-        if (accessToken) {
-            // 토큰이 URL에 바로 포함 (소셜 로그인 콜백 또는 Implicit Flow)
-            saveTokens(accessToken, refreshToken);
+        // 토큰은 URL 에 오지 않는다 — 콜백이 서버에 맡긴 토큰을 세션 쿠키 + CSRF 헤더로 한 번 꺼낸다
+        try {
+            const csrf = document.getElementById('csrf').dataset;
+            const response = await fetch('/auth/session/token', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { [csrf.header]: csrf.token },
+            });
+            if (!response.ok) {
+                throw new Error('토큰을 받지 못했습니다. 소셜 로그인을 다시 시도해주세요.');
+            }
+            const tokens = await response.json();
+            saveTokens(tokens.accessToken, tokens.refreshToken);
             showSection('success');
-            document.getElementById('accessTokenDisplay').textContent = accessToken;
-            document.getElementById('refreshTokenDisplay').textContent = refreshToken || '없음';
-            return;
+            document.getElementById('accessTokenDisplay').textContent = tokens.accessToken;
+            document.getElementById('refreshTokenDisplay').textContent = tokens.refreshToken || '없음';
+        } catch (err) {
+            showSection('error');
+            document.getElementById('errorDescription').textContent = err.message;
         }
-
-        // 파라미터가 없는 경우
-        showSection('error');
-        document.getElementById('errorDescription').textContent =
-            '콜백 파라미터가 없습니다. 소셜 로그인을 다시 시도해주세요.';
     });
 
     function showSection(section) {

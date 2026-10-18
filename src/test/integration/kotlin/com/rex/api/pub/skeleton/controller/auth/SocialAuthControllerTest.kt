@@ -1,6 +1,7 @@
 package com.rex.api.pub.skeleton.controller.auth
 
 import com.ninjasquad.springmockk.MockkBean
+import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionAuthenticator
 import com.rex.api.pub.skeleton.dto.auth.SocialLoginRequestDto
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
@@ -45,6 +46,9 @@ class SocialAuthControllerTest(
 
     @MockkBean
     lateinit var clientIpResolver: ClientIpResolver
+
+    @MockkBean
+    lateinit var browserSessionAuthenticator: BrowserSessionAuthenticator
 
     init {
         // ============================================
@@ -91,7 +95,7 @@ class SocialAuthControllerTest(
                         header { string("Location", org.hamcrest.Matchers.startsWith("/demo/auth/callback?error=invalid_state")) }
                     }
 
-                    verify(exactly = 0) { socialAuthMappingService.socialLogin(any(), any(), any(), any(), any(), any()) }
+                    verify(exactly = 0) { socialAuthMappingService.socialLogin(any(), any(), any(), any(), any()) }
                 }
             }
         }
@@ -135,7 +139,6 @@ class SocialAuthControllerTest(
                     socialAuthMappingService.socialLogin(
                         provider = SocialProvider.GOOGLE,
                         code = any(),
-                        state = null,
                         deviceType = any(),
                         deviceInfo = any(),
                         ipAddress = "203.0.113.10",
@@ -155,7 +158,6 @@ class SocialAuthControllerTest(
                         socialAuthMappingService.socialLogin(
                             provider = SocialProvider.GOOGLE,
                             code = any(),
-                            state = null,
                             deviceType = any(),
                             deviceInfo = any(),
                             ipAddress = "203.0.113.10",

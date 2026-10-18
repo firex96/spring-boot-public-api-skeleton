@@ -73,7 +73,7 @@ base package 를 바꿀 때는 문자열 안의 FQN 도 함께 고친다 — `ME
 
 | 지울 것 | 함께 지워야 하는 테스트 |
 |---|---|
-| `controller/demo/` · `templates/demo/**` · `templates/fragments/**` · `static/css/**` · `static/js/admin.js` | `DemoTemplateContractTest`(유닛) · `DemoAdminPagesBrowserE2ETest`(e2e) — `SocialLoginBrowserE2ETest` 는 `/demo/auth/callback` 리다이렉트만 기다린다 |
+| `controller/demo/` · `templates/demo/**` · `templates/fragments/**` · `static/css/**` · `static/js/admin.js` | `DemoTemplateContractTest`(유닛) · `DemoAdminPagesBrowserE2ETest`(e2e) — 소셜 콜백은 `/demo/auth/callback` 으로 리다이렉트하고 그 페이지가 `POST /auth/session/token` 으로 토큰을 받는다(`SocialBrowserLoginIntegrationTest`·`SocialLoginBrowserE2ETest`). 데모를 지우면 `SocialAuthController` 의 리다이렉트 대상과 `BrowserSecurityPaths.DEMO_CALLBACK` 을 파생 프로젝트의 프론트 경로로 바꾼다 |
 | `Product*` (main 스키마 예제), `client/core/` | 같은 이름의 단위·통합·e2e 테스트, `context/product/ProductBuilder.kt` |
 | `dto/example/` · `mapper/example/` · `service/example/` · `enums/example/` | 해당 유닛 테스트 |
 | `persistence/jpa/entity/main/SoftDeletableExampleEntity.kt` | **`AuditingIntegrationTest` · `AuditorChainIntegrationTest` · `AuditorHeaderDistrustIntegrationTest` · `SecurityAuditorContextIntegrationTest` · `support/AuditProbeConfiguration.kt`** |

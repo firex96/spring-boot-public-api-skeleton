@@ -72,7 +72,7 @@ class SecurityConfiguration(
      * 브라우저 체인 — 사용자 에이전트가 리다이렉트로 오가는 흐름(경로 정본: [BrowserSecurityPaths]).
      *
      * 세션(`SKELETON_SESSION`, Redis)과 CSRF 를 쓰고 JWT 는 읽지 않는다. 세션 속성은 SecurityContext·CSRF 토큰
-     * 둘뿐이다 — 요청 캐시를 끄는 이유다. 1회 소비 값(state)은 세션이 아니라 Redis `GETDEL` 로 다룬다.
+     * 둘뿐이다 — 요청 캐시를 끄는 이유다. 1회 소비 값(state·토큰 교환)은 세션이 아니라 Redis `GETDEL` 로 다룬다.
      * CORS 는 끈다: 쿠키를 싣는 경로를 교차 출처에 열지 않는다.
      */
     @Bean

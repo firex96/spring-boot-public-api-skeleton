@@ -1,5 +1,7 @@
 package com.rex.api.pub.skeleton.config.security
 
+import org.springframework.security.core.GrantedAuthority
+import org.springframework.security.core.authority.SimpleGrantedAuthority
 import java.io.Serializable
 
 /**
@@ -14,6 +16,9 @@ data class AuthenticatedUser(
     val groups: List<String>,
     val permissions: List<String>,
 ) : Serializable {
+    /** Spring Security 권한 — 그룹은 `ROLE_{group}`, 권한 코드는 그대로. API 체인(JWT)과 브라우저 체인이 같은 규칙을 쓴다. */
+    fun authorities(): List<GrantedAuthority> = groups.map { SimpleGrantedAuthority("ROLE_$it") } + permissions.map(::SimpleGrantedAuthority)
+
     companion object {
         private const val serialVersionUID = 1L
     }

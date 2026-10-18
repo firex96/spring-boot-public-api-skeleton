@@ -8,14 +8,19 @@ import com.rex.api.pub.skeleton.model.auth.AccessTokenResponseModel
 import com.rex.api.pub.skeleton.model.auth.AuthUserInfoModel
 import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
 import com.rex.api.pub.skeleton.service.auth.AuthBizService
+import com.rex.api.pub.skeleton.service.auth.TokenHandoffBizService
 import org.springframework.stereotype.Service
 
 /** 인증 API 매핑 — `AuthController`·`UserController` 의 DTO → BizService → Model. */
 @Service
 class AuthMappingService(
     private val authBizService: AuthBizService,
+    private val tokenHandoffBizService: TokenHandoffBizService,
     private val mapper: AuthMapper,
 ) {
+    /** 소셜 콜백이 맡겨 둔 토큰을 한 번만 꺼낸다 — 없거나 이미 꺼냈으면 null. */
+    fun takeTokenHandoff(userSessionId: String): TokenResponseModel? = tokenHandoffBizService.take(userSessionId)?.let { mapper.toTokenResponseModel(it) }
+
     fun signup(request: SignupRequestDto): AuthUserInfoModel = mapper.toAuthUserInfoModel(authBizService.signup(request))
 
     fun login(request: LoginRequestDto, ipAddress: String?): TokenResponseModel =

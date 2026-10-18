@@ -6,9 +6,14 @@ import com.rex.api.pub.skeleton.config.TestcontainersConfiguration
 import com.rex.api.pub.skeleton.dto.auth.OAuth2TokenResponse
 import com.rex.api.pub.skeleton.dto.auth.SocialUserInfo
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
+import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
+import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.kotest.matchers.string.shouldStartWith
 import io.mockk.clearMocks
 import io.mockk.every
@@ -27,6 +32,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 /**
  * 브라우저 소셜 로그인 흐름 — 실제 `SecurityConfiguration`(브라우저 체인)·Spring Session·Redis(클러스터) 를 지난다.
@@ -43,6 +49,8 @@ import java.nio.charset.StandardCharsets
 @ContextConfiguration(initializers = [TestcontainersConfiguration.Initializer::class])
 class SocialBrowserLoginIntegrationTest(
     @LocalServerPort private val port: Int,
+    private val userEntityService: UserEntityService,
+    private val userSocialAccountEntityService: UserSocialAccountEntityService,
 ) : DescribeSpec() {
     @MockkBean
     lateinit var googleClient: GoogleOAuth2Client
@@ -74,9 +82,71 @@ class SocialBrowserLoginIntegrationTest(
         get("/auth/oauth2/$provider/callback?code=provider-code" + (state?.let { "&state=$it" } ?: ""), cookie)
 
     /** 서블릿 컨테이너는 Location 을 절대 URL 로 내보낸다 — 출처를 떼고 경로·쿼리로 비교한다. */
+    private fun post(path: String, cookie: String?, headers: Map<String, String> = emptyMap()): HttpResponse<String> =
+        http.send(
+            HttpRequest.newBuilder(url(path)).POST(HttpRequest.BodyPublishers.noBody())
+                .apply {
+                    cookie?.let { header("Cookie", it) }
+                    headers.forEach { (k, v) -> header(k, v) }
+                }.build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+
+    /** 데모 콜백 페이지가 받는 CSRF (헤더 이름, 토큰) — 브라우저 체인이 세션에 저장한 값이다. */
+    private fun csrfOf(cookie: String): Pair<String, String> {
+        val page = get("/demo/auth/callback", cookie).body()
+        val token = Regex("""data-token="([^"]+)"""").find(page).shouldNotBeNull().groupValues[1]
+        val header = Regex("""data-header="([^"]+)"""").find(page).shouldNotBeNull().groupValues[1]
+        return header to token
+    }
+
+    private fun postSessionToken(cookie: String?, csrf: Pair<String, String>?): HttpResponse<String> =
+        post("/auth/session/token", cookie, csrf?.let { mapOf(it.first to it.second) } ?: emptyMap())
+
+    /** 콜백 성공 응답 — Location 이 정확히 데모 콜백이고 토큰이 URL 에 없다. */
+    private fun assertNoTokenInLocation(response: HttpResponse<*>) {
+        response.statusCode() shouldBe 302
+        response.location() shouldBe "/demo/auth/callback"
+        response.location() shouldNotContain "access_token"
+        response.location() shouldNotContain "refresh_token"
+    }
+
+    /** 연동된 계정으로 콜백까지 마친 브라우저 세션 쿠키. */
+    private fun loginThroughCallback(): String {
+        every { googleClient.getUserInfo(any()) } returns
+            SocialUserInfo(provider = SocialProvider.GOOGLE, providerId = LINKED_PROVIDER_ID, email = null, name = null, profileImage = null)
+        val (cookie, state) = startAuthorization()
+        val callback = callbackWithState(cookie, "google", state)
+        assertNoTokenInLocation(callback)
+        return sessionCookie(callback).shouldNotBeNull()
+    }
+
     private fun HttpResponse<*>.location(): String = headers().firstValue("Location").orElse("").removePrefix("http://localhost:$port")
 
     init {
+        beforeSpec {
+            val user =
+                userEntityService.createUser(
+                    loginId = "it_social_${UUID.randomUUID().toString().take(8)}",
+                    passwordHash = "{noop}unused",
+                    email = null,
+                    name = null,
+                    nickname = null,
+                    phone = null,
+                )
+            userSocialAccountEntityService.link(
+                userId = user.id,
+                provider = SocialProvider.GOOGLE.name,
+                providerId = LINKED_PROVIDER_ID,
+                email = null,
+                name = null,
+                profileImage = null,
+                accessToken = null,
+                refreshToken = null,
+                tokenExpiresAt = null,
+            )
+        }
+
         beforeEach {
             clearMocks(googleClient)
             every { googleClient.provider } returns SocialProvider.GOOGLE
@@ -143,5 +213,69 @@ class SocialBrowserLoginIntegrationTest(
                 responses.count { it.location().startsWith("/demo/auth/callback?error=invalid_state") } shouldBe 7
             }
         }
+
+        describe("콜백 토큰 교환") {
+            it("성공 콜백은 쿼리 없이 데모 콜백으로 302 하고 세션 ID 를 바꾼다") {
+                val (cookie, state) = startAuthorization()
+                every { googleClient.getUserInfo(any()) } returns
+                    SocialUserInfo(provider = SocialProvider.GOOGLE, providerId = LINKED_PROVIDER_ID, email = null, name = null, profileImage = null)
+
+                val callback = callbackWithState(cookie, "google", state)
+
+                assertNoTokenInLocation(callback)
+                sessionCookie(callback).shouldNotBeNull() shouldNotBe cookie
+            }
+
+            it("교환은 첫 호출만 200 이고 받은 토큰이 유효하다 — 두 번째는 401") {
+                val cookie = loginThroughCallback()
+                val csrf = csrfOf(cookie)
+
+                val first = postSessionToken(cookie, csrf)
+                first.statusCode() shouldBe 200
+                val accessToken = Regex(""""accessToken"\s*:\s*"([^"]+)"""").find(first.body()).shouldNotBeNull().groupValues[1]
+                http.send(
+                    HttpRequest.newBuilder(url("/users/me")).header("Authorization", "Bearer $accessToken").GET().build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                ).statusCode() shouldBe 200
+
+                val second = postSessionToken(cookie, csrf)
+                second.statusCode() shouldBe 401
+                second.body() shouldContain "UNAUTHORIZED_ERROR"
+            }
+
+            it("CSRF 헤더가 없으면 403 ErrorResponseModel 이다") {
+                val cookie = loginThroughCallback()
+
+                val response = postSessionToken(cookie, null)
+
+                response.statusCode() shouldBe 403
+                response.body() shouldContain "FORBIDDEN_ERROR"
+            }
+
+            it("로그인하지 않은 세션은 CSRF 가 맞아도 401 ErrorResponseModel 이다") {
+                val (anonymousCookie, _) = startAuthorization()
+
+                val response = postSessionToken(anonymousCookie, csrfOf(anonymousCookie))
+
+                response.statusCode() shouldBe 401
+                response.body() shouldContain "UNAUTHORIZED_ERROR"
+            }
+
+            it("같은 쿠키·CSRF 로 교환 8개를 동시에 보내면 200 은 exactly one") {
+                val cookie = loginThroughCallback()
+                val csrf = csrfOf(cookie)
+
+                val responses =
+                    withContext(Dispatchers.IO) {
+                        (1..8).map { async { postSessionToken(cookie, csrf) } }.awaitAll()
+                    }
+
+                responses.count { it.statusCode() == 200 } shouldBe 1
+            }
+        }
+    }
+
+    companion object {
+        private const val LINKED_PROVIDER_ID = "linked-google-id"
     }
 }

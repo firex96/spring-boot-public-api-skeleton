@@ -111,8 +111,12 @@ class SocialLoginBrowserE2ETest(
                 // 4. 결과 확인 - 데모 콜백 페이지로 리다이렉트되었는지 확인
                 val currentUrl = page.url()
                 val params = page.getQueryParams()
-                // 로그인 성공 시 토큰을 받거나 데모 콜백 페이지로 리다이렉트
-                (params.containsKey("access_token") || currentUrl.contains("/demo/auth/callback")) shouldBe true
+                // 토큰은 URL 에 오지 않는다 — 데모 콜백이 세션 교환(POST /auth/session/token)으로 받아 화면에 표시한다
+                currentUrl shouldContain "/demo/auth/callback"
+                params.containsKey("access_token") shouldBe false
+                params.containsKey("refresh_token") shouldBe false
+                page.waitForSelector("#successSection", com.microsoft.playwright.Page.WaitForSelectorOptions().setTimeout(15000.0))
+                page.locator("#accessTokenDisplay").textContent().isNullOrBlank() shouldBe false
 
                 page.saveScreenshot("kakao-login-result.png")
             }
@@ -147,8 +151,12 @@ class SocialLoginBrowserE2ETest(
                 // 4. 결과 확인 - 데모 콜백 페이지로 리다이렉트되었는지 확인
                 val currentUrl = page.url()
                 val params = page.getQueryParams()
-                // 로그인 성공 시 토큰을 받거나 데모 콜백 페이지로 리다이렉트
-                (params.containsKey("access_token") || currentUrl.contains("/demo/auth/callback")) shouldBe true
+                // 토큰은 URL 에 오지 않는다 — 데모 콜백이 세션 교환(POST /auth/session/token)으로 받아 화면에 표시한다
+                currentUrl shouldContain "/demo/auth/callback"
+                params.containsKey("access_token") shouldBe false
+                params.containsKey("refresh_token") shouldBe false
+                page.waitForSelector("#successSection", com.microsoft.playwright.Page.WaitForSelectorOptions().setTimeout(15000.0))
+                page.locator("#accessTokenDisplay").textContent().isNullOrBlank() shouldBe false
 
                 page.saveScreenshot("naver-login-result.png")
             }
@@ -183,8 +191,12 @@ class SocialLoginBrowserE2ETest(
                 // 4. 결과 확인 - 데모 콜백 페이지로 리다이렉트되었는지 확인
                 val currentUrl = page.url()
                 val params = page.getQueryParams()
-                // 로그인 성공 시 토큰을 받거나 데모 콜백 페이지로 리다이렉트
-                (params.containsKey("access_token") || currentUrl.contains("/demo/auth/callback")) shouldBe true
+                // 토큰은 URL 에 오지 않는다 — 데모 콜백이 세션 교환(POST /auth/session/token)으로 받아 화면에 표시한다
+                currentUrl shouldContain "/demo/auth/callback"
+                params.containsKey("access_token") shouldBe false
+                params.containsKey("refresh_token") shouldBe false
+                page.waitForSelector("#successSection", com.microsoft.playwright.Page.WaitForSelectorOptions().setTimeout(15000.0))
+                page.locator("#accessTokenDisplay").textContent().isNullOrBlank() shouldBe false
 
                 page.saveScreenshot("google-login-result.png")
             }

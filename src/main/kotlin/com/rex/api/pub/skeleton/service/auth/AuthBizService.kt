@@ -191,6 +191,22 @@ class AuthBizService(
 
     fun validateSession(sessionId: String): SessionInfo? = sessionCacheBizService.getSession(sessionId)
 
+    /**
+     * 막 발급된 access 토큰으로 브라우저 세션 principal 을 만든다 — 토큰의 jti(사용자 세션)가 살아 있어야 한다.
+     * 브라우저 세션은 이 사용자 세션 ID 를 principal 로 든다.
+     */
+    fun resolveBrowserPrincipal(accessToken: String): SessionInfo {
+        val payload = jwtTokenBizService.validateToken(accessToken)
+        if (payload == null || payload.isRefreshToken) {
+            throw InvalidTokenException("유효하지 않은 토큰입니다")
+        }
+        val session = validateSession(payload.sessionId)
+        if (session == null || session.revoked) {
+            throw InvalidTokenException("세션이 유효하지 않습니다")
+        }
+        return session
+    }
+
     fun getCurrentUser(userId: Long): UserInfoDto {
         val user =
             userEntityService.getUserById(userId)

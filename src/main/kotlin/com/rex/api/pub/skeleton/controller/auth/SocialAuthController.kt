@@ -2,6 +2,7 @@ package com.rex.api.pub.skeleton.controller.auth
 
 import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSecurityPaths
+import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionAuthenticator
 import com.rex.api.pub.skeleton.dto.auth.SocialLoginRequestDto
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.model.auth.SocialAccountModel
@@ -33,6 +34,7 @@ import java.nio.charset.StandardCharsets
 class SocialAuthController(
     private val socialAuthMappingService: SocialAuthMappingService,
     private val clientIpResolver: ClientIpResolver,
+    private val browserSessionAuthenticator: BrowserSessionAuthenticator,
 ) {
     @Operation(
         summary = "소셜 로그인 시작",
@@ -77,23 +79,17 @@ class SocialAuthController(
             return
         }
 
-        // 로그인 처리
-        val ipAddress = clientIpResolver.resolve(httpRequest)
-        val tokens =
-            socialAuthMappingService.socialLogin(
+        // 로그인 처리 — 토큰은 URL 에 싣지 않는다. 서버에 맡기고(교환 대기) 브라우저 세션에 로그인시킨 뒤 쿼리 없이 리다이렉트한다
+        val principal =
+            socialAuthMappingService.socialLoginForBrowser(
                 provider = provider,
                 code = code,
                 state = state,
-                deviceType = "WEB",
                 deviceInfo = httpRequest.getHeader("User-Agent"),
-                ipAddress = ipAddress,
+                ipAddress = clientIpResolver.resolve(httpRequest),
             )
-
-        // 데모 콜백 페이지로 토큰과 함께 리다이렉트
-        // 실제 운영에서는 보안을 위해 짧은 수명의 코드를 발급하고 프론트엔드에서 교환하는 방식 권장
-        httpResponse.sendRedirect(
-            "/demo/auth/callback?access_token=${tokens.accessToken}&refresh_token=${tokens.refreshToken}&expires_in=${tokens.expiresIn}",
-        )
+        browserSessionAuthenticator.signIn(httpRequest, httpResponse, principal)
+        httpResponse.sendRedirect(BrowserSecurityPaths.DEMO_CALLBACK)
     }
 
     /**
@@ -112,7 +108,6 @@ class SocialAuthController(
             socialAuthMappingService.socialLogin(
                 provider = provider,
                 code = request.code,
-                state = null,
                 deviceType = request.deviceType,
                 deviceInfo = request.deviceInfo,
                 ipAddress = ipAddress,

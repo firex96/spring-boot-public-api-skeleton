@@ -412,7 +412,14 @@ sequenceDiagram
         else 연동된 계정
             SocialAuthBizService->>AuthBizService: createSession(user, ...)
             AuthBizService-->>SocialAuthBizService: TokenResponseDto
-            SocialAuthController-->>Browser: 302 Redirect<br/>?access_token=xxx&refresh_token=yyy
+            Note over SocialAuthMappingService: 토큰은 URL 에 싣지 않는다
+            SocialAuthMappingService->>Redis: SET browser:token-handoff:{userSessionId}<br/>TTL 60초
+            SocialAuthController->>SocialAuthController: changeSessionId + SecurityContext 저장
+            SocialAuthController-->>Browser: 302 /demo/auth/callback (쿼리 없음)
+            Browser->>SocialAuthController: POST /auth/session/token<br/>(쿠키 + CSRF 헤더)
+            Note right of Browser: BrowserSessionController
+            SocialAuthController->>Redis: GETDEL browser:token-handoff:{userSessionId}
+            SocialAuthController-->>Browser: 200 {accessToken, refreshToken} (한 번만, 두 번째 401)
         end
     end
 ```
@@ -1277,6 +1284,7 @@ sequenceDiagram
 | 로그인 시도 | `login:attempts:{loginId}` | 15분 | 로그인 성공 |
 | 계정 잠금 | `login:locked:{loginId}` | 30분 | 관리자 해제, 자동 만료 |
 | 소셜 state | `browser:social-state:{state}` | 5분 | 콜백이 `GETDEL` 로 소비 |
+| 콜백 토큰 교환 대기 | `browser:token-handoff:{userSessionId}` | 60초 | `POST /auth/session/token` 이 `GETDEL` 로 소비 |
 | 브라우저 세션 | `skeleton:public-api:session:sessions:{id}` | 30분(비활동) | 만료 |
 
 ### 이벤트별 캐시 무효화
