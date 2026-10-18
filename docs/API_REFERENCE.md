@@ -923,7 +923,7 @@ curl -X POST https://api.example.com/oauth2/token \
 
 ### GET /.well-known/openid-configuration
 
-OpenID Connect Discovery
+OpenID Connect Discovery — `*_supported` 값은 실제 지원값 상수(`OAuth2AuthorizationBizService.SUPPORTED_*`, `IdTokenBizService.SUPPORTED_*`)에서 만든다. 광고한 값마다 실제 동작을 `DiscoveryConformanceE2ETest` 가 대조한다.
 
 #### Response `200 OK`
 
@@ -935,7 +935,15 @@ OpenID Connect Discovery
   "userinfo_endpoint": "https://api.example.com/oauth2/userinfo",
   "jwks_uri": "https://api.example.com/.well-known/jwks.json",
   "revocation_endpoint": "https://api.example.com/oauth2/revoke",
-  "introspection_endpoint": "https://api.example.com/oauth2/introspect"
+  "introspection_endpoint": "https://api.example.com/oauth2/introspect",
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
+  "subject_types_supported": ["public"],
+  "id_token_signing_alg_values_supported": ["RS256"],
+  "scopes_supported": ["openid", "profile", "email", "offline_access"],
+  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+  "code_challenge_methods_supported": ["S256", "plain"],
+  "claims_supported": ["iss", "sub", "aud", "iat", "exp", "jti", "auth_time", "nonce", "at_hash", "name", "nickname", "picture", "updated_at", "email", "email_verified"]
 }
 ```
 

@@ -54,13 +54,6 @@ class IdTokenBizService(
             }
         }
 
-        if (scopes.contains("phone")) {
-            user.phone?.let {
-                claims["phone_number"] = it
-                claims["phone_number_verified"] = false
-            }
-        }
-
         return Jwts.builder()
             .header()
             .keyId(jwkBizService.getKeyId())
@@ -72,6 +65,18 @@ class IdTokenBizService(
             .expiration(Date.from(expiration))
             .signWith(jwkBizService.getPrivateKey(), Jwts.SIG.RS256)
             .compact()
+    }
+
+    companion object {
+        /** ID 토큰 서명 알고리즘 — RS256 하나(JWKS 로 검증 가능한 것만). HS256 은 access·refresh 토큰용이라 광고하지 않는다. */
+        val SUPPORTED_SIGNING_ALGORITHMS: List<String> = listOf("RS256")
+
+        /** id_token 과 userinfo(`OidcBizService`)가 실제로 내보내는 클레임의 합집합 — discovery `claims_supported`. */
+        val SUPPORTED_CLAIMS: List<String> =
+            listOf(
+                "iss", "sub", "aud", "iat", "exp", "jti", "auth_time", "nonce", "at_hash",
+                "name", "nickname", "picture", "updated_at", "email", "email_verified",
+            )
     }
 
     fun computeAtHash(accessToken: String): String {

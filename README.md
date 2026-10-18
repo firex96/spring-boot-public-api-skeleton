@@ -304,7 +304,7 @@ docker compose up -d
 
 **JWT** — Access Token + Refresh Token. 세션을 DB 에 두고 토큰은 **해시로만** 저장한다(원본을 저장하지 않는다). Token Refresh 지원.
 
-**OAuth2 / OIDC** — Authorization Code Flow · Client Credentials Flow · ID Token 발급 · JWK Set 엔드포인트. authorize 는 브라우저 흐름이다 — 브라우저 세션이 없으면 `/oauth2/login`(로그인 화면), third-party 클라이언트면 `/oauth2/consent`(동의 화면)를 거쳐 `redirect_uri?code` 로 간다. userinfo 는 이 서버가 발급한 access 토큰(openid scope)만 받는다. RSA 키가 없으면 ID Token 은 기동 시 생성한 임시 키로 서명된다 — 운영은 `oidc-rsa-*` 를 등록하고 `oidc.require-rsa-key: true` 로 막는다.
+**OAuth2 / OIDC** — Authorization Code Flow · Client Credentials Flow · ID Token 발급 · JWK Set 엔드포인트. authorize 는 브라우저 흐름이다 — 브라우저 세션이 없으면 `/oauth2/login`(로그인 화면), third-party 클라이언트면 `/oauth2/consent`(동의 화면)를 거쳐 `redirect_uri?code` 로 간다. discovery(`/.well-known/openid-configuration`)는 실제 지원값 상수에서 만든다 — `code` · authorization_code/refresh_token/client_credentials · `client_secret_basic`/`client_secret_post` · PKCE `S256`/`plain` · id_token RS256 · scope `openid profile email offline_access`. userinfo 는 이 서버가 발급한 access 토큰(openid scope)만 받는다. RSA 키가 없으면 ID Token 은 기동 시 생성한 임시 키로 서명된다 — 운영은 `oidc-rsa-*` 를 등록하고 `oidc.require-rsa-key: true` 로 막는다.
 
 **소셜 로그인** — Google · Kakao · Naver. `application.yml` 의 `oauth2` 주석에서 켤 provider 만 푼다. 브라우저는 `GET /auth/oauth2/{provider}/authorize` 로 이동한다 — 서버가 state 를 그 브라우저 세션(`SKELETON_SESSION`)에 묶어 발급하고, 콜백은 state 를 먼저 소비해 다른 세션·재사용·만료면 `invalid_state` 로 끝낸다. 브라우저 흐름만 세션·CSRF 를 쓰고 나머지 API 는 STATELESS·Bearer 다(CLAUDE.md 「9-3」).
 

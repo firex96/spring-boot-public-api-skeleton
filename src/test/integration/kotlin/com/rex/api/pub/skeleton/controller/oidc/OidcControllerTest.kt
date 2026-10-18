@@ -45,6 +45,14 @@ class OidcControllerTest(
                     jwksUri = "https://auth.example.com/.well-known/jwks.json",
                     revocationEndpoint = "https://auth.example.com/oauth2/revoke",
                     introspectionEndpoint = "https://auth.example.com/oauth2/introspect",
+                    responseTypesSupported = listOf("code"),
+                    grantTypesSupported = listOf("authorization_code"),
+                    subjectTypesSupported = listOf("public"),
+                    idTokenSigningAlgValuesSupported = listOf("RS256"),
+                    scopesSupported = listOf("openid"),
+                    tokenEndpointAuthMethodsSupported = listOf("client_secret_basic"),
+                    codeChallengeMethodsSupported = listOf("S256"),
+                    claimsSupported = listOf("sub"),
                 )
 
                 every { mappingService.getOpenIdConfiguration() } returns config
@@ -58,6 +66,8 @@ class OidcControllerTest(
                             jsonPath("$.token_endpoint") { value("https://auth.example.com/oauth2/token") }
                             jsonPath("$.userinfo_endpoint") { value("https://auth.example.com/oauth2/userinfo") }
                             jsonPath("$.jwks_uri") { value("https://auth.example.com/.well-known/jwks.json") }
+                            jsonPath("$.grant_types_supported[0]") { value("authorization_code") }
+                            jsonPath("$.code_challenge_methods_supported[0]") { value("S256") }
                         }
                 }
             }

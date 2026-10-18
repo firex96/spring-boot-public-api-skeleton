@@ -486,6 +486,7 @@ interface ExternalApi {
 - 클레임은 토큰 scope 만큼만(`profile`·`email`), 나머지는 응답에서 빠진다(`UserInfoModel` `NON_NULL`)
 - `email_verified` 의 정본은 `TokenEntityService.existsVerifiedEmail` — 현재 이메일의 인증 토큰에 `verified_at` 이 있는가. `is_verified` 로 보지 않는다(재요청 무효화도 `is_verified=true` 를 쓴다). userinfo · id_token · `GET /user/profile` 이 같은 규칙을 쓴다
 - 검출: `OAuth2AuthorizationBizServiceUserInfoTest`(유닛) · `EmailVerifiedQueryIntegrationTest`(실제 MySQL) · `OidcE2ETest` · `EmailVerifiedE2ETest`
+- **discovery 는 실제 지원값에서 만든다.** 지원값 상수(`OAuth2AuthorizationBizService.SUPPORTED_RESPONSE_TYPES`·`SUPPORTED_GRANT_TYPES`·`SUPPORTED_CODE_CHALLENGE_METHODS`·`SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS`·`SUPPORTED_SCOPES`, `IdTokenBizService.SUPPORTED_SIGNING_ALGORITHMS`·`SUPPORTED_CLAIMS`)가 광고와 검사 로직의 유일한 정본이다. `OpenIdConfigurationModel` 에 기본값을 두지 않는다. 지원을 늘리거나 줄이면 상수와 처리 로직을 같이 바꾼다 — `DiscoveryConformanceE2ETest` 가 광고값마다 실제 동작과 클레임 출력을 대조한다(광고했는데 안 되는 것·되는데 광고하지 않은 것 모두 실패)
 
 ### 9-3. 브라우저 세션 체인 (소셜 로그인·브라우저 흐름)
 - 필터 체인은 둘이다. **브라우저 체인**(`@Order(1)`, 경로 정본 `config/security/browser/BrowserSecurityPaths`)은 세션(`SKELETON_SESSION`, Spring Session Redis)·CSRF 를 쓰고 JWT 를 읽지 않는다. **API 체인**(`@Order(2)`)은 STATELESS·Bearer 그대로다. 브라우저 체인은 CORS 를 끈다(쿠키를 싣는 경로를 교차 출처에 열지 않는다)

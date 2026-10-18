@@ -8,6 +8,7 @@ import com.rex.api.pub.skeleton.model.oauth2.OAuth2ErrorResponseModel
 import com.rex.api.pub.skeleton.model.oidc.OpenIdConfigurationModel
 import com.rex.api.pub.skeleton.model.oidc.UserInfoModel
 import com.rex.api.pub.skeleton.service.oauth2.OAuth2AuthorizationBizService
+import com.rex.api.pub.skeleton.service.oidc.IdTokenBizService
 import com.rex.api.pub.skeleton.service.oidc.OidcBizService
 import org.springframework.stereotype.Service
 
@@ -34,6 +35,14 @@ class OidcMappingService(
             jwksUri = "$baseUrl/.well-known/jwks.json",
             revocationEndpoint = "$baseUrl/oauth2/revoke",
             introspectionEndpoint = "$baseUrl/oauth2/introspect",
+            responseTypesSupported = OAuth2AuthorizationBizService.SUPPORTED_RESPONSE_TYPES,
+            grantTypesSupported = OAuth2AuthorizationBizService.SUPPORTED_GRANT_TYPES,
+            subjectTypesSupported = listOf("public"),
+            idTokenSigningAlgValuesSupported = IdTokenBizService.SUPPORTED_SIGNING_ALGORITHMS,
+            scopesSupported = OAuth2AuthorizationBizService.SUPPORTED_SCOPES,
+            tokenEndpointAuthMethodsSupported = OAuth2AuthorizationBizService.SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS,
+            codeChallengeMethodsSupported = OAuth2AuthorizationBizService.SUPPORTED_CODE_CHALLENGE_METHODS,
+            claimsSupported = IdTokenBizService.SUPPORTED_CLAIMS,
         )
     }
 

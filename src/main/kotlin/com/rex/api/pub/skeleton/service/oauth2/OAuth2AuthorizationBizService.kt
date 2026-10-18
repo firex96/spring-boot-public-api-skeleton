@@ -53,6 +53,14 @@ class OAuth2AuthorizationBizService(
         const val GRANT_TYPE_REFRESH_TOKEN = "refresh_token"
         const val GRANT_TYPE_CLIENT_CREDENTIALS = "client_credentials"
 
+        // ===== 지원값 — discovery 광고(`OidcMappingService`)와 검사 로직이 함께 쓰는 유일한 정본 =====
+        // 여기 없는 값을 광고하지 않고, 광고하지 않는 값을 받지 않는다. 지원을 늘리면 여기와 처리 로직을 같이 바꾼다.
+        val SUPPORTED_RESPONSE_TYPES: List<String> = listOf("code")
+        val SUPPORTED_GRANT_TYPES: List<String> = listOf(GRANT_TYPE_AUTHORIZATION_CODE, GRANT_TYPE_REFRESH_TOKEN, GRANT_TYPE_CLIENT_CREDENTIALS)
+        val SUPPORTED_CODE_CHALLENGE_METHODS: List<String> = listOf("S256", "plain")
+        val SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS: List<String> = listOf("client_secret_basic", "client_secret_post") // ClientCredentialsResolver
+        val SUPPORTED_SCOPES: List<String> = listOf("openid", "profile", "email", "offline_access")
+
         const val ERROR_INVALID_REQUEST = "invalid_request"
         const val ERROR_UNAUTHORIZED_CLIENT = "unauthorized_client"
         const val ERROR_ACCESS_DENIED = "access_denied"
@@ -119,14 +127,14 @@ class OAuth2AuthorizationBizService(
 
     /** 검증된 client 에 대한 나머지 파라미터 검증 — 실패는 검증된 redirect_uri 로 알릴 수 있다. */
     fun validateAuthorizationParameters(request: AuthorizationRequestDto, client: OAuth2ClientDto) {
-        if (request.responseType != "code") {
+        if (request.responseType !in SUPPORTED_RESPONSE_TYPES) {
             throw OAuth2Exception(ERROR_UNSUPPORTED_RESPONSE_TYPE, "지원하지 않는 response_type입니다")
         }
         if (client.requirePkce && request.codeChallenge.isNullOrBlank()) {
             throw OAuth2Exception(ERROR_INVALID_REQUEST, "PKCE code_challenge가 필요합니다")
         }
         if (!request.codeChallengeMethod.isNullOrBlank() &&
-            request.codeChallengeMethod !in listOf("plain", "S256")
+            request.codeChallengeMethod !in SUPPORTED_CODE_CHALLENGE_METHODS
         ) {
             throw OAuth2Exception(ERROR_INVALID_REQUEST, "지원하지 않는 code_challenge_method입니다")
         }
