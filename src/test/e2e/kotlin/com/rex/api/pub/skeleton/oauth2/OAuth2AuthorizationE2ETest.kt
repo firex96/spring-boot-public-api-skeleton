@@ -182,6 +182,45 @@ class OAuth2AuthorizationE2ETest(
         }
     }
 
+    describe("POST /oauth2/token - scope 는 승인·등록 범위를 넘을 수 없다") {
+
+        fun refresh(clientId: String, clientSecret: String, refreshToken: String, scope: String) =
+            newBrowser().postForm(
+                "/oauth2/token",
+                mapOf("grant_type" to "refresh_token", "refresh_token" to refreshToken, "client_id" to clientId, "client_secret" to clientSecret, "scope" to scope),
+            )
+
+        context("openid 만 승인받은 refresh_token 으로 profile email 을 요청") {
+            it("400 invalid_scope — 승인하지 않은 범위로 넓힐 수 없다. 승인 범위 안의 축소·유지는 200") {
+                val (clientId, clientSecret) = createOAuth2Client(isFirstParty = true)
+                val (_, loginId) = createAndLoginUser()
+                val code = authorizeViaBrowser(newBrowser(), authorizeQuery(clientId, scope = "openid"), loginId).location().substringAfter("code=").substringBefore("&")
+                val refreshToken = restTemplate.exchangeAuthorizationCode(clientId, clientSecret, code)["refresh_token"].shouldNotBeNull() as String
+
+                val widened = refresh(clientId, clientSecret, refreshToken, "openid profile email")
+                widened.statusCode() shouldBe 400
+                widened.body() shouldContain "invalid_scope"
+
+                refresh(clientId, clientSecret, refreshToken, "openid").statusCode() shouldBe 200
+            }
+        }
+
+        context("client_credentials 로 등록하지 않은 scope 를 요청") {
+            it("400 invalid_scope") {
+                val (clientId, clientSecret) = createOAuth2Client()
+
+                val response =
+                    newBrowser().postForm(
+                        "/oauth2/token",
+                        mapOf("grant_type" to "client_credentials", "client_id" to clientId, "client_secret" to clientSecret, "scope" to "openid admin"),
+                    )
+
+                response.statusCode() shouldBe 400
+                response.body() shouldContain "invalid_scope"
+            }
+        }
+    }
+
     describe("POST /oauth2/token - 클라이언트 인증 방식 (discovery 의 token_endpoint_auth_methods_supported)") {
 
         fun tokenRequest(form: Map<String, String>, basic: Pair<String, String>? = null): HttpResponse<String> = newBrowser().postForm("/oauth2/token", form, basic)

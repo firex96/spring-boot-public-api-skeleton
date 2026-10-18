@@ -279,9 +279,11 @@ class OAuth2AuthorizationBizService(
         val client = oAuth2ClientBizService.getActiveClient(clientId)
             ?: throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
 
+        // RFC 6749 §6 — 갱신 scope 는 원래 승인 범위를 넘을 수 없다(넘으면 userinfo 등에서 사용자가 승인하지 않은 정보가 나간다)
+        val tokenScopes = scope?.let { requested -> narrowScopes(requested, granted = scopeSet(refreshToken.scopes)) } ?: refreshToken.scopes
+
         // 기존 access token 폐기 후 새로 발급(refresh token 은 유지)
         oAuth2TokenEntityService.revokeAccessTokensByRefreshTokenId(refreshTokenId, LocalDateTime.now())
-        val tokenScopes = scope?.replace(" ", ",") ?: refreshToken.scopes
         return issueAccessToken(client = client, userId = refreshToken.userId, scopes = tokenScopes, refreshTokenId = refreshTokenId)
     }
 
@@ -295,7 +297,8 @@ class OAuth2AuthorizationBizService(
         if (!client.hasGrantType(GRANT_TYPE_CLIENT_CREDENTIALS)) {
             throw OAuth2Exception(ERROR_UNAUTHORIZED_CLIENT, "클라이언트가 client_credentials flow를 지원하지 않습니다")
         }
-        val requestedScopes = scope?.split(" ")?.joinToString(",") ?: client.scopes.joinToString(",")
+        // 요청 scope 는 클라이언트 등록 범위 안이어야 한다(RFC 6749 §3.3 — 등록하지 않은 scope 의 토큰을 내주지 않는다)
+        val requestedScopes = scope?.let { narrowScopes(it, granted = client.scopes.toSet()) } ?: client.scopes.joinToString(",")
         return issueAccessTokenOnly(client = client, userId = null, scopes = requestedScopes)
     }
 
@@ -503,6 +506,18 @@ class OAuth2AuthorizationBizService(
     )
 
     // Entity 의 판정 메서드를 DTO 확장으로 — 본문은 Entity 의 것과 같다
+    private fun scopeSet(scopes: String?): Set<String> = scopes.orEmpty().split(',', ' ').filter { it.isNotBlank() }.toSet()
+
+    /** 요청 scope 가 [granted] 의 부분집합이면 저장 형식(쉼표)으로, 아니면 `invalid_scope`. */
+    private fun narrowScopes(requested: String, granted: Set<String>): String {
+        val requestedSet = scopeSet(requested)
+        val exceeding = requestedSet - granted
+        if (exceeding.isNotEmpty()) {
+            throw OAuth2Exception(ERROR_INVALID_SCOPE, "승인·등록 범위를 넘는 scope 입니다: ${exceeding.joinToString(" ")}")
+        }
+        return requestedSet.joinToString(",")
+    }
+
     private fun OAuth2ClientDto.hasGrantType(grantType: String): Boolean = grantTypes.contains(grantType)
 
     private fun OAuth2ClientDto.hasScope(scope: String): Boolean = scopes.contains(scope)
