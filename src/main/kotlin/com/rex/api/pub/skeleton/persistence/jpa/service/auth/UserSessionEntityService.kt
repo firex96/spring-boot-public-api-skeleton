@@ -62,19 +62,11 @@ class UserSessionEntityService(
         userSessionRepository.revokeSession(sessionId = sessionId, revokedAt = LocalDateTime.now(), reason = reason)
     }
 
+    /** 지정한 세션들만 폐기한다(이미 폐기된 것은 건너뛴다). 빈 목록이면 아무것도 하지 않는다. */
     @Transactional(transactionManager = "authTransactionManager")
-    fun revokeAllByUserId(userId: Long, reason: String) {
-        userSessionRepository.revokeAllUserSessions(userId = userId, revokedAt = LocalDateTime.now(), reason = reason)
-    }
-
-    @Transactional(transactionManager = "authTransactionManager")
-    fun revokeAllByUserIdExcept(userId: Long, excludeSessionId: String, reason: String) {
-        userSessionRepository.revokeAllUserSessionsExcept(
-            userId = userId,
-            excludeSessionId = excludeSessionId,
-            revokedAt = LocalDateTime.now(),
-            reason = reason,
-        )
+    fun revokeAll(sessionIds: Collection<String>, reason: String) {
+        if (sessionIds.isEmpty()) return
+        userSessionRepository.revokeSessions(sessionIds = sessionIds, revokedAt = LocalDateTime.now(), reason = reason)
     }
 
     /** 액세스 토큰 재발급 — 발급·만료 시각과 마지막 활동 시각을 함께 갱신한다. 폐기된 세션은 건드리지 않는다(멱등). */

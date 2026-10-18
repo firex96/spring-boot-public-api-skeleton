@@ -482,8 +482,9 @@ interface ExternalApi {
 - **1회 소비 값은 세션 속성이 아니라 Redis `GETDEL`** 로 다룬다 — 세션은 요청마다 읽은 사본이라 동시 요청이 같은 값을 둘 다 소비할 수 있다
 - 소셜 state: `GET /auth/oauth2/{p}/authorize` 가 발급해 `browser:social-state:{state}`(TTL 5분)에 `{browserSessionId, provider}` 로 묶고 provider 로 302 한다. 콜백은 **무엇보다 먼저** 소비하고, 세션·provider 가 다르면 코드 교환 없이 `error=invalid_state` 다. `POST /auth/oauth2/{p}/login`·`/link` 는 네이티브 코드 교환이라 state 검증은 클라이언트 책임이다
 - **소셜 콜백은 토큰을 URL 에 싣지 않는다.** 성공하면 토큰을 `browser:token-handoff:{userSessionId}`(TTL 60초)에 맡기고, `changeSessionId` 뒤 SecurityContext 를 세션에 저장(`BrowserSessionAuthenticator`)하고, 쿼리 없이 `/demo/auth/callback` 으로 보낸다. 페이지는 세션 쿠키 + CSRF 헤더로 `POST /auth/session/token` 을 한 번 부른다(두 번째·미로그인 401, CSRF 없음 403)
+- 사용자 세션 일괄 폐기(전체 로그아웃·비밀번호 변경)는 **폐기 전에** 대상 세션을 모으고 **커밋 뒤에** 그 캐시를 지운다(`AuthBizService.revokeAllAndEvict` → `SessionCacheBizService.evictRevokedSessions`) — 폐기 뒤 "살아 있는 세션" 으로 찾으면 방금 폐기한 세션의 캐시가 남고, 커밋 전에 지우면 다른 요청이 폐기 전 행을 다시 캐시에 올린다. `deleteAllUserSessions` 는 권한 갱신 전용이다. 조회 쪽 캐시 miss 는 `cacheSessionUnlessRevoked` — 폐기 표식(`session:revoked:{id}`)이 없을 때만 쓰는 Lua 스크립트(해시 태그로 같은 슬롯)라, 폐기가 끝난 뒤 폐기 전 값이 다시 캐시에 나타나지 않는다
 - 쿠키: HttpOnly · `SameSite=Lax`(Strict 면 provider 콜백에 쿠키가 실리지 않는다) · Secure 는 논리 키 `browser-session-cookie-secure`(기본 `true`, `local`·통합 테스트 `false`)
-- 검출: `SocialAuthorizationStateBizServiceTest`·`TokenHandoffBizServiceTest`(유닛) · `SocialBrowserLoginIntegrationTest`(실제 체인·Redis 클러스터, 세션 복원, 동시성) · `SocialAuthE2ETest`
+- 검출: `SocialAuthorizationStateBizServiceTest`·`TokenHandoffBizServiceTest`(유닛) · `SocialBrowserLoginIntegrationTest`(실제 체인·Redis 클러스터, 세션 복원, 동시성) · `SocialAuthE2ETest` · `SessionOwnershipE2ETest` O-4·O-5(일괄 폐기)
 
 ### 10. Performance Monitoring
 - `@SlowMethod` 어노테이션으로 느린 메서드 감지

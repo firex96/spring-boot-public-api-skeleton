@@ -1280,6 +1280,7 @@ sequenceDiagram
 | 캐시 유형 | 키 패턴 | TTL | 무효화 시점 |
 |-----------|---------|-----|-------------|
 | 세션 | `session:{sessionId}` | Access Token 만료시간 | 로그아웃, 강제종료, 비밀번호 변경 |
+| 세션 폐기 표식 | `session:revoked:{sessionId}` | 5분 | 만료 — 폐기 직후 늦은 캐시 쓰기를 막는다(`cacheSessionUnlessRevoked`) |
 | 권한 | `user:permissions:{userId}` | 5분 | 그룹 변경, 그룹 권한 변경 |
 | 로그인 시도 | `login:attempts:{loginId}` | 15분 | 로그인 성공 |
 | 계정 잠금 | `login:locked:{loginId}` | 30분 | 관리자 해제, 자동 만료 |

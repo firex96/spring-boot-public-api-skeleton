@@ -119,7 +119,7 @@ class AuthBizService(
     @Transactional(transactionManager = "authTransactionManager")
     fun logout(sessionId: String) {
         userSessionEntityService.revoke(sessionId, "LOGOUT")
-        sessionCacheBizService.deleteSession(sessionId)
+        sessionCacheBizService.invalidateSession(sessionId)
     }
 
     @Transactional(transactionManager = "authTransactionManager")
@@ -127,12 +127,7 @@ class AuthBizService(
         userId: Long,
         excludeCurrentSession: String? = null,
     ) {
-        if (excludeCurrentSession != null) {
-            userSessionEntityService.revokeAllByUserIdExcept(userId, excludeCurrentSession, "LOGOUT_ALL")
-        } else {
-            userSessionEntityService.revokeAllByUserId(userId, "LOGOUT_ALL")
-        }
-        sessionCacheBizService.deleteAllUserSessions(userId)
+        revokeAllAndEvict(userId, "LOGOUT_ALL", excludeSessionId = excludeCurrentSession)
     }
 
     @Transactional(transactionManager = "authTransactionManager")
@@ -185,8 +180,20 @@ class AuthBizService(
         userEntityService.updatePassword(userId, encodePassword(request.newPassword))
 
         // 비밀번호 변경 시 모든 세션 무효화
-        userSessionEntityService.revokeAllByUserId(userId, "PASSWORD_CHANGED")
-        sessionCacheBizService.deleteAllUserSessions(userId)
+        revokeAllAndEvict(userId, "PASSWORD_CHANGED", excludeSessionId = null)
+    }
+
+    /**
+     * 사용자 세션을 일괄 폐기하고 **그 세션들의** 캐시를 지운다.
+     *
+     * 대상은 폐기 **전에** 모으고 **그 ID 만** 폐기한다 — 폐기 뒤에 "폐기되지 않은 세션" 으로 캐시를 찾으면 방금 폐기한 세션이 빠져,
+     * 캐시가 남은 동안(액세스 토큰 만료까지) 폐기된 세션의 토큰이 계속 통과한다. 캐시 제거 규칙은 `SessionCacheBizService.evictRevokedSessions`.
+     */
+    private fun revokeAllAndEvict(userId: Long, reason: String, excludeSessionId: String?) {
+        val sessionIds = userSessionEntityService.getUnrevokedByUserId(userId).map { it.sessionId }.filter { it != excludeSessionId }
+        // 모은 ID 만 폐기한다 — 사용자 단위 bulk UPDATE 는 수집과 UPDATE 사이에 생긴 세션까지 폐기해 캐시 삭제 대상과 어긋난다
+        userSessionEntityService.revokeAll(sessionIds, reason)
+        sessionCacheBizService.evictRevokedSessions(sessionIds, userId)
     }
 
     fun validateSession(sessionId: String): SessionInfo? = sessionCacheBizService.getSession(sessionId)

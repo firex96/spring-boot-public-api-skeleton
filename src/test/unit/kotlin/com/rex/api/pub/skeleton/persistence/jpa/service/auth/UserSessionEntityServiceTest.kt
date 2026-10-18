@@ -82,7 +82,7 @@ class UserSessionEntityServiceTest : DescribeSpec({
         }
     }
 
-    describe("revoke / revokeAllByUserId / revokeAllByUserIdExcept") {
+    describe("revoke / revokeAll") {
         it("revoke 는 sessionId·사유를 그대로 리포지토리 벌크 갱신에 넘긴다") {
             every { userSessionRepository.revokeSession("sess-1", any(), "LOGOUT") } returns 1
 
@@ -91,20 +91,14 @@ class UserSessionEntityServiceTest : DescribeSpec({
             verify(exactly = 1) { userSessionRepository.revokeSession("sess-1", any(), "LOGOUT") }
         }
 
-        it("revokeAllByUserId 는 userId·사유로 위임한다") {
-            every { userSessionRepository.revokeAllUserSessions(7L, any(), "PASSWORD_CHANGED") } returns 3
+        it("revokeAll 은 지정한 sessionId 들만 폐기한다 — 빈 목록이면 리포지토리를 부르지 않는다") {
+            every { userSessionRepository.revokeSessions(listOf("a", "b"), any(), "LOGOUT_ALL") } returns 2
 
-            service.revokeAllByUserId(7L, "PASSWORD_CHANGED")
+            service.revokeAll(listOf("a", "b"), "LOGOUT_ALL")
+            service.revokeAll(emptyList(), "LOGOUT_ALL")
 
-            verify(exactly = 1) { userSessionRepository.revokeAllUserSessions(7L, any(), "PASSWORD_CHANGED") }
-        }
-
-        it("revokeAllByUserIdExcept 는 제외 세션까지 그대로 넘긴다") {
-            every { userSessionRepository.revokeAllUserSessionsExcept(7L, "keep-me", any(), "LOGOUT_ALL") } returns 2
-
-            service.revokeAllByUserIdExcept(7L, "keep-me", "LOGOUT_ALL")
-
-            verify(exactly = 1) { userSessionRepository.revokeAllUserSessionsExcept(7L, "keep-me", any(), "LOGOUT_ALL") }
+            verify(exactly = 1) { userSessionRepository.revokeSessions(any(), any(), any()) }
+            verify(exactly = 1) { userSessionRepository.revokeSessions(listOf("a", "b"), any(), "LOGOUT_ALL") }
         }
     }
 

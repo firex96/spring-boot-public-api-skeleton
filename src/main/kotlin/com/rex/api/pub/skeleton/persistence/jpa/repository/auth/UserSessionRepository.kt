@@ -30,20 +30,9 @@ interface UserSessionRepository : JpaRepository<UserSessionEntity, Long> {
     ): Int
 
     @Modifying
-    @Query("UPDATE UserSessionEntity s SET s.isRevoked = true, s.revokedAt = :revokedAt, s.revokedReason = :reason WHERE s.userId = :userId AND s.isRevoked = false")
-    fun revokeAllUserSessions(
-        @Param("userId") userId: Long,
-        @Param("revokedAt") revokedAt: LocalDateTime,
-        @Param("reason") reason: String,
-    ): Int
-
-    @Modifying
-    @Query(
-        "UPDATE UserSessionEntity s SET s.isRevoked = true, s.revokedAt = :revokedAt, s.revokedReason = :reason WHERE s.userId = :userId AND s.sessionId != :excludeSessionId AND s.isRevoked = false",
-    )
-    fun revokeAllUserSessionsExcept(
-        @Param("userId") userId: Long,
-        @Param("excludeSessionId") excludeSessionId: String,
+    @Query("UPDATE UserSessionEntity s SET s.isRevoked = true, s.revokedAt = :revokedAt, s.revokedReason = :reason WHERE s.sessionId IN :sessionIds AND s.isRevoked = false")
+    fun revokeSessions(
+        @Param("sessionIds") sessionIds: Collection<String>,
         @Param("revokedAt") revokedAt: LocalDateTime,
         @Param("reason") reason: String,
     ): Int
