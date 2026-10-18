@@ -21,7 +21,14 @@ class JwtAuthenticationFilter(
     companion object {
         private const val AUTHORIZATION_HEADER = "Authorization"
         private const val BEARER_PREFIX = "Bearer "
+        private const val USERINFO_PATH = "/oauth2/userinfo"
     }
+
+    /**
+     * userinfo 는 1st-party 세션이 아니라 인가 서버 access 토큰으로 인증한다(컨트롤러가 직접 검증) — 여기서 돌면
+     * 그 토큰의 jti 로 사용자 세션을 찾느라 캐시 miss → DB 조회만 하고 버린다.
+     */
+    override fun shouldNotFilter(request: HttpServletRequest): Boolean = request.servletPath == USERINFO_PATH
 
     override fun doFilterInternal(
         request: HttpServletRequest,

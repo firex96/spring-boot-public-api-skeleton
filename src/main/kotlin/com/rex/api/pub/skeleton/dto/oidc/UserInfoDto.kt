@@ -12,10 +12,6 @@ data class UserInfoDto(
     val email: String? = null,
     @JsonProperty("email_verified")
     val emailVerified: Boolean? = null,
-    @JsonProperty("phone_number")
-    val phoneNumber: String? = null,
-    @JsonProperty("phone_number_verified")
-    val phoneNumberVerified: Boolean? = null,
     @JsonProperty("updated_at")
     val updatedAt: Long? = null,
 )

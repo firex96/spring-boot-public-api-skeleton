@@ -3,17 +3,26 @@ package com.rex.api.pub.skeleton.oidc
 import com.rex.api.pub.skeleton.config.E2ETestConfiguration
 import com.rex.api.pub.skeleton.support.E2eResourceJanitor
 import com.rex.api.pub.skeleton.support.E2eResources
+import com.rex.api.pub.skeleton.support.authorizationCodeViaBrowser
+import com.rex.api.pub.skeleton.support.authorizationServerTokens
 import com.rex.api.pub.skeleton.support.createAndLoginUser
+import com.rex.api.pub.skeleton.support.createOAuth2TestClient
+import com.rex.api.pub.skeleton.support.exchangeAuthorizationCode
 import com.rex.api.pub.skeleton.support.getWithAuth
+import com.rex.api.pub.skeleton.support.postForm
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import org.springframework.boot.resttestclient.TestRestTemplate
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.http.HttpEntity
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
-import java.util.UUID
+import org.springframework.util.LinkedMultiValueMap
 
 /**
  * OpenID Connect API E2E 테스트.
@@ -36,12 +45,8 @@ class OidcE2ETest(
     val resources = E2eResources()
     afterSpec { println("[e2e cleanup] OidcE2ETest ${janitor.cleanup(resources)}") }
 
-    fun uniqueLoginId() = "e2e_oidc_${UUID.randomUUID().toString().take(8)}"
-    fun uniqueEmail() = "e2e_oidc_${UUID.randomUUID().toString().take(8)}@example.com"
-
     // 일반 사용자 생성 및 로그인
     // accessToken — signup 201·login 200 단언·정리 등록은 공용 헬퍼가 한다
-    suspend fun createAndLoginUser(): String = restTemplate.createAndLoginUser(resources, "e2e_oidc_").accessToken
 
     describe("GET /.well-known/openid-configuration - OIDC Discovery") {
 
@@ -134,59 +139,109 @@ class OidcE2ETest(
         }
     }
 
-    describe("GET /oauth2/userinfo - UserInfo 조회") {
+    describe("GET /oauth2/userinfo - UserInfo 조회 (인가 서버 access 토큰)") {
 
-        context("인증된 사용자가 UserInfo 조회") {
-            it("200 OK와 사용자 정보를 반환한다") {
-                // given
-                val accessToken = createAndLoginUser()
+        suspend fun newUser() = restTemplate.createAndLoginUser(resources, "e2e_oidc_")
 
-                // when
-                val response = restTemplate.getWithAuth<Map<String, Any>>("/oauth2/userinfo", accessToken)
+        fun userinfo(token: String?) =
+            restTemplate.exchange(
+                "/oauth2/userinfo",
+                HttpMethod.GET,
+                HttpEntity<Void>(HttpHeaders().apply { token?.let { setBearerAuth(it) } }),
+                String::class.java,
+            )
 
-                // then
-                response.statusCode shouldBe HttpStatus.OK
-                response.body.shouldNotBeNull()
+        context("authorization_code 토큰 (openid profile email)") {
+            it("200 이고 sub·email 이 있다") {
+                val user = newUser()
+                val tokens = restTemplate.authorizationServerTokens(resources, user.loginId, "openid profile email")
 
-                // 기본 클레임 확인
-                response.body!!["sub"].shouldNotBeNull() // Subject (user ID)
-            }
-        }
+                val response = restTemplate.getWithAuth<Map<String, Any>>("/oauth2/userinfo", tokens["access_token"] as String)
 
-        context("인증 없이 UserInfo 조회") {
-            it("401 Unauthorized를 반환한다") {
-                // when
-                val response = restTemplate.getForEntity("/oauth2/userinfo", String::class.java)
-
-                // then
-                response.statusCode shouldBe HttpStatus.UNAUTHORIZED
-            }
-        }
-
-        context("잘못된 토큰으로 UserInfo 조회") {
-            it("401 Unauthorized를 반환한다") {
-                // when
-                val response = restTemplate.getWithAuth<String>("/oauth2/userinfo", "invalid-token")
-
-                // then
-                response.statusCode shouldBe HttpStatus.UNAUTHORIZED
-            }
-        }
-
-        context("UserInfo에 포함된 클레임 확인") {
-            it("openid 스코프에 해당하는 클레임을 반환한다") {
-                // given
-                val accessToken = createAndLoginUser()
-
-                // when
-                val response = restTemplate.getWithAuth<Map<String, Any>>("/oauth2/userinfo", accessToken)
-
-                // then — 로그인 사용자의 access token 으로 UserInfo 는 200 이어야 한다(if 가드는 실패를 통과시켰다)
                 response.statusCode shouldBe HttpStatus.OK
                 val body = response.body.shouldNotBeNull()
+                body["sub"] shouldBe user.userId.toString()
+                body["email"].shouldNotBeNull()
+                body.containsKey("email_verified") shouldBe true
+            }
+        }
 
-                // sub (subject)는 항상 포함
-                body["sub"].shouldNotBeNull()
+        context("authorization_code 토큰 (openid 만)") {
+            it("email·name 키가 없다 — scope 가 허락한 클레임만 싣는다") {
+                val user = newUser()
+                val tokens = restTemplate.authorizationServerTokens(resources, user.loginId, "openid")
+
+                val body = restTemplate.getWithAuth<Map<String, Any>>("/oauth2/userinfo", tokens["access_token"] as String).body.shouldNotBeNull()
+
+                body["sub"] shouldBe user.userId.toString()
+                body.containsKey("email") shouldBe false
+                body.containsKey("name") shouldBe false
+            }
+        }
+
+        context("openid 없는 토큰") {
+            it("403 insufficient_scope 와 WWW-Authenticate") {
+                val user = newUser()
+                val tokens = restTemplate.authorizationServerTokens(resources, user.loginId, "profile")
+
+                val response = userinfo(tokens["access_token"] as String)
+
+                response.statusCode shouldBe HttpStatus.FORBIDDEN
+                response.body.shouldNotBeNull() shouldContain "insufficient_scope"
+                response.headers.getFirst("WWW-Authenticate").shouldNotBeNull() shouldContain "insufficient_scope"
+            }
+        }
+
+        context("client_credentials 토큰 — 사용자 주체 없음") {
+            it("401 invalid_token") {
+                val (clientId, clientSecret) = restTemplate.createOAuth2TestClient(resources)
+                val token =
+                    restTemplate.postForm<Map<String, Any>>(
+                        "/oauth2/token",
+                        LinkedMultiValueMap<String, String>().apply {
+                            add("grant_type", "client_credentials")
+                            add("client_id", clientId)
+                            add("client_secret", clientSecret)
+                            add("scope", "openid")
+                        },
+                    ).body.shouldNotBeNull()["access_token"] as String
+
+                val response = userinfo(token)
+
+                response.statusCode shouldBe HttpStatus.UNAUTHORIZED
+                response.headers.getFirst("WWW-Authenticate").shouldNotBeNull() shouldContain "invalid_token"
+            }
+        }
+
+        context("폐기한 토큰") {
+            it("401 invalid_token") {
+                val user = newUser()
+                val (clientId, clientSecret) = restTemplate.createOAuth2TestClient(resources)
+                val tokens = restTemplate.exchangeAuthorizationCode(clientId, clientSecret, restTemplate.authorizationCodeViaBrowser(clientId, user.loginId, "openid"))
+                val accessToken = tokens["access_token"] as String
+                restTemplate.postForm<String>(
+                    "/oauth2/revoke",
+                    LinkedMultiValueMap<String, String>().apply {
+                        add("token", accessToken)
+                        add("client_id", clientId)
+                        add("client_secret", clientSecret)
+                    },
+                ).statusCode shouldBe HttpStatus.OK
+
+                userinfo(accessToken).statusCode shouldBe HttpStatus.UNAUTHORIZED
+            }
+        }
+
+        context("1st-party 로그인 토큰 (POST /auth/login)") {
+            it("401 invalid_token — userinfo 는 OAuth 2.0 access 토큰만 받는다") {
+                userinfo(newUser().accessToken).statusCode shouldBe HttpStatus.UNAUTHORIZED
+            }
+        }
+
+        context("토큰 없음·잘못된 토큰") {
+            it("401") {
+                userinfo(null).statusCode shouldBe HttpStatus.UNAUTHORIZED
+                userinfo("invalid-token").statusCode shouldBe HttpStatus.UNAUTHORIZED
             }
         }
     }

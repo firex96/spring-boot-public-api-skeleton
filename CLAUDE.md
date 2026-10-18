@@ -425,7 +425,7 @@ db/migration/{schema}/
 
   | 경로 | 형식 |
   |---|---|
-  | OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`, `/oauth2/authorize` 의 리다이렉트 전 오류) | `OAuth2ErrorResponseModel` — RFC 6749 §5.2 `{error, error_description, error_uri}` |
+  | OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`userinfo`, `/oauth2/authorize` 의 리다이렉트 전 오류) | `OAuth2ErrorResponseModel` — RFC 6749 §5.2 `{error, error_description, error_uri}` |
   | 인가 서버 브라우저 화면(`/oauth2/login`·`/oauth2/consent`)의 OAuth2 검증 실패 | HTML `oauth2/error`(`invalid_client` 401, 그 외 400, Location 없음) — 사람이 보는 화면이다 |
   | 그 밖의 모든 401·403·4xx (필터 체인 거부, `@PreAuthorize` 거부, CSRF 거부, 업무 예외) | `ErrorResponseModel` |
 
@@ -480,6 +480,11 @@ interface ExternalApi {
 - `/oauth2/token`·`introspect`·`revoke` 의 클라이언트 인증은 **시크릿 필수**다(`OAuth2AuthorizationBizService.authenticateClient`). 모든 클라이언트가 시크릿을 갖고 public 클라이언트 유형이 없으므로, 시크릿 없이 `client_id` 만 통과시키면 클라이언트 인증 우회다
 - 방식은 `client_secret_basic`(헤더)·`client_secret_post`(폼) 둘이고 한 요청에 하나만 — `ClientCredentialsResolver`(`config/security`)가 꺼낸다. `invalid_client` 는 401 + `WWW-Authenticate: Basic realm="oauth2"`
 - 검출: `ClientCredentialsResolverTest`(유닛) · `OAuth2AuthorizationControllerTest`(Basic·헤더) · `OAuth2AuthorizationE2ETest`「클라이언트 인증 방식」
+
+### 9-2b. OIDC userinfo
+- `/oauth2/userinfo` 는 **이 인가 서버가 발급한 access 토큰**만 받는다(`OAuth2AuthorizationBizService.resolveUserInfoGrant` — 서명·만료, `oauth2_access_tokens` 활성 기록, 사용자 주체, `openid` scope). 1st-party 로그인 토큰은 받지 않는다. API 체인에서는 permitAll 이고 컨트롤러가 Bearer 를 직접 꺼낸다. 오류는 RFC 6750(401 `invalid_token`·403 `insufficient_scope` + `WWW-Authenticate`)
+- 클레임은 토큰 scope 만큼만(`profile`·`email`), 나머지는 응답에서 빠진다(`UserInfoModel` `NON_NULL`)
+- 검출: `OAuth2AuthorizationBizServiceUserInfoTest`(유닛) · `OidcE2ETest`
 
 ### 9-3. 브라우저 세션 체인 (소셜 로그인·브라우저 흐름)
 - 필터 체인은 둘이다. **브라우저 체인**(`@Order(1)`, 경로 정본 `config/security/browser/BrowserSecurityPaths`)은 세션(`SKELETON_SESSION`, Spring Session Redis)·CSRF 를 쓰고 JWT 를 읽지 않는다. **API 체인**(`@Order(2)`)은 STATELESS·Bearer 그대로다. 브라우저 체인은 CORS 를 끈다(쿠키를 싣는 경로를 교차 출처에 열지 않는다)

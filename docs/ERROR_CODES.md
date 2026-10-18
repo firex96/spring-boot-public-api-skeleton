@@ -42,7 +42,7 @@ OAuth2 프로토콜 엔드포인트와 인가 서버 브라우저 화면(`/oauth
 
 ### OAuth2 에러 응답
 
-OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`, 그리고 `/oauth2/authorize` 의 리다이렉트 전 오류)는 RFC 6749 §5.2 형식을 따릅니다:
+OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`userinfo`, 그리고 `/oauth2/authorize` 의 리다이렉트 전 오류)는 RFC 6749 §5.2 형식을 따릅니다:
 
 ```json
 {

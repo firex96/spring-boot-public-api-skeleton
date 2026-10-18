@@ -968,11 +968,13 @@ ID Token 검증을 위한 공개 키 정보를 반환합니다.
 
 ### GET /oauth2/userinfo
 
-사용자 정보 조회
+사용자 정보 조회 (OIDC Core §5.3)
 
-**인증 필요**
+**`Authorization: Bearer <이 인가 서버가 발급한 access 토큰>`** — `openid` scope 를 받은 활성 토큰이어야 한다. `POST /auth/login` 의 1st-party 토큰, client_credentials 토큰(사용자 없음), 폐기·만료 토큰은 받지 않는다.
 
-#### Response `200 OK`
+클레임은 토큰의 scope 만큼만 싣는다 — `profile` → `name`·`nickname`·`picture`·`updated_at`, `email` → `email`·`email_verified`.
+
+#### Response `200 OK` (scope `openid profile email`)
 
 ```json
 {
@@ -982,11 +984,16 @@ ID Token 검증을 위한 공개 키 정보를 반환합니다.
   "picture": "https://cdn.example.com/profiles/12345.jpg",
   "email": "user@example.com",
   "email_verified": true,
-  "phone_number": "010-1234-5678",
-  "phone_number_verified": false,
   "updated_at": 1705312200
 }
 ```
+
+#### Error Responses (RFC 6750 §3)
+
+| 상태 | `WWW-Authenticate` | 본문 `error` |
+|------|-------------------|--------------|
+| 401 | `Bearer error="invalid_token"` | `invalid_token` — 토큰 없음·서명/만료 불량·발급 기록 없음·폐기·사용자 없음 |
+| 403 | `Bearer error="insufficient_scope", scope="openid"` | `insufficient_scope` |
 
 ---
 

@@ -139,8 +139,8 @@ class SecurityConfiguration(
                     // OAuth2 Authorization Server 엔드포인트 (authorize·login·consent 는 브라우저 체인)
                     .requestMatchers("/oauth2/token", "/oauth2/introspect", "/oauth2/revoke").permitAll()
                     // OpenID Connect 엔드포인트
-                    .requestMatchers("/.well-known/openid-configuration", "/.well-known/jwks.json").permitAll()
-                    .requestMatchers("/oauth2/userinfo").authenticated()
+                    // userinfo 는 인가 서버 access 토큰을 컨트롤러가 직접 검증한다(RFC 6750 오류) — JwtAuthenticationFilter 는 이 경로를 건너뛴다
+                    .requestMatchers("/.well-known/openid-configuration", "/.well-known/jwks.json", "/oauth2/userinfo").permitAll()
                     // Swagger UI
                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                     // Actuator (health check)

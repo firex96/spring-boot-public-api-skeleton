@@ -1,7 +1,6 @@
 package com.rex.api.pub.skeleton.service.mapping
 
 import com.rex.api.pub.skeleton.dto.oauth2.AuthorizationRequestDto
-import com.rex.api.pub.skeleton.dto.oauth2.OAuth2ErrorResponseDto
 import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
 import com.rex.api.pub.skeleton.mapper.OAuth2Mapper
 import com.rex.api.pub.skeleton.model.oauth2.AuthorizationConsentModel
@@ -62,5 +61,5 @@ class OAuth2AuthorizationMappingService(
     }
 
     fun toErrorModel(e: OAuth2Exception): OAuth2ErrorResponseModel =
-        mapper.toErrorResponseModel(OAuth2ErrorResponseDto(error = e.error, errorDescription = e.errorDescription, errorUri = e.errorUri))
+        mapper.toErrorResponseModel(e)
 }

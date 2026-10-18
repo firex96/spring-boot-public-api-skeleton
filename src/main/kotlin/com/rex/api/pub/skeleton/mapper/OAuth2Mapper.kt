@@ -7,10 +7,10 @@ import com.rex.api.pub.skeleton.dto.oauth2.OAuth2AccessTokenDto
 import com.rex.api.pub.skeleton.dto.oauth2.OAuth2AuthorizationCodeDto
 import com.rex.api.pub.skeleton.dto.oauth2.OAuth2ClientDto
 import com.rex.api.pub.skeleton.dto.oauth2.OAuth2ClientWithSecretDto
-import com.rex.api.pub.skeleton.dto.oauth2.OAuth2ErrorResponseDto
 import com.rex.api.pub.skeleton.dto.oauth2.OAuth2RefreshTokenDto
 import com.rex.api.pub.skeleton.dto.oauth2.TokenIntrospectionResponseDto
 import com.rex.api.pub.skeleton.dto.oidc.OidcTokenResponseDto
+import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
 import com.rex.api.pub.skeleton.model.oauth2.AuthorizationConsentModel
 import com.rex.api.pub.skeleton.model.oauth2.AuthorizeDecisionModel
 import com.rex.api.pub.skeleton.model.oauth2.OAuth2ClientModel
@@ -71,7 +71,7 @@ interface OAuth2Mapper {
 
     fun toTokenIntrospectionResponseModel(dto: TokenIntrospectionResponseDto): TokenIntrospectionResponseModel
 
-    fun toErrorResponseModel(dto: OAuth2ErrorResponseDto): OAuth2ErrorResponseModel
+    fun toErrorResponseModel(e: OAuth2Exception): OAuth2ErrorResponseModel
 
     fun toAuthorizeDecisionModel(dto: AuthorizeDecisionDto): AuthorizeDecisionModel
 }

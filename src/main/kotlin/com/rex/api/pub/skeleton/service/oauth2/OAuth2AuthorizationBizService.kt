@@ -9,6 +9,7 @@ import com.rex.api.pub.skeleton.dto.oauth2.OAuth2ClientDto
 import com.rex.api.pub.skeleton.dto.oauth2.OAuth2RefreshTokenDto
 import com.rex.api.pub.skeleton.dto.oauth2.OAuth2TokenResponseDto
 import com.rex.api.pub.skeleton.dto.oauth2.TokenIntrospectionResponseDto
+import com.rex.api.pub.skeleton.dto.oauth2.UserInfoGrantDto
 import com.rex.api.pub.skeleton.dto.oidc.OidcTokenResponseDto
 import com.rex.api.pub.skeleton.enums.oauth2.AuthorizeNextStep
 import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
@@ -60,6 +61,9 @@ class OAuth2AuthorizationBizService(
         const val ERROR_INVALID_GRANT = "invalid_grant"
         const val ERROR_UNSUPPORTED_GRANT_TYPE = "unsupported_grant_type"
         const val ERROR_INVALID_CLIENT = "invalid_client"
+        const val ERROR_INVALID_TOKEN = "invalid_token" // RFC 6750 §3.1
+        const val SCOPE_OPENID = "openid"
+        const val ERROR_INSUFFICIENT_SCOPE = "insufficient_scope" // RFC 6750 §3.1
     }
 
     private val signingKey by lazy {
@@ -300,6 +304,28 @@ class OAuth2AuthorizationBizService(
         // 요청 scope 는 클라이언트 등록 범위 안이어야 한다(RFC 6749 §3.3 — 등록하지 않은 scope 의 토큰을 내주지 않는다)
         val requestedScopes = scope?.let { narrowScopes(it, granted = client.scopes.toSet()) } ?: client.scopes.joinToString(",")
         return issueAccessTokenOnly(client = client, userId = null, scopes = requestedScopes)
+    }
+
+    // ===== UserInfo =====
+
+    /**
+     * `GET /oauth2/userinfo` 의 Bearer — **이 인가 서버가 발급한 access 토큰**이어야 한다(OIDC Core §5.3).
+     *
+     * 서명·만료를 지나고, `oauth2_access_tokens` 에 활성으로 있고(폐기·refresh 토큰·1st-party 로그인 토큰은 여기 없다),
+     * 사용자 주체가 있고(client_credentials 토큰은 없다), `openid` scope 를 받았어야 한다. scope 는 발급 기록이 정본이다.
+     */
+    fun resolveUserInfoGrant(accessToken: String): UserInfoGrantDto {
+        val tokenId = extractTokenId(accessToken) ?: throw OAuth2Exception(ERROR_INVALID_TOKEN, "유효하지 않은 토큰입니다")
+        val record = oAuth2TokenEntityService.getAccessToken(tokenId)
+        if (record == null || !record.isActive()) {
+            throw OAuth2Exception(ERROR_INVALID_TOKEN, "유효하지 않은 토큰입니다")
+        }
+        val userId = record.userId ?: throw OAuth2Exception(ERROR_INVALID_TOKEN, "사용자 주체가 없는 토큰입니다")
+        val scopes = scopeSet(record.scopes)
+        if (SCOPE_OPENID !in scopes) {
+            throw OAuth2Exception(ERROR_INSUFFICIENT_SCOPE, "openid scope 가 필요합니다")
+        }
+        return UserInfoGrantDto(userId = userId, scopes = scopes)
     }
 
     // ===== Introspection · Revocation =====
