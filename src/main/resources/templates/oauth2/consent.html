@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>권한 동의</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #f5f6f8; margin: 0; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+        main { background: #fff; padding: 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, .08); width: 100%; max-width: 420px; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        p { color: #555; font-size: 14px; }
+        ul { padding-left: 20px; }
+        li { margin: 6px 0; }
+        .actions { display: flex; gap: 12px; margin-top: 24px; }
+        button { flex: 1; padding: 12px; border: 0; border-radius: 6px; font-size: 15px; cursor: pointer; }
+        .approve { background: #2b59c3; color: #fff; }
+        .deny { background: #e4e6eb; color: #333; }
+    </style>
+</head>
+<body>
+<main>
+    <h1 th:text="${consent.clientName}">클라이언트</h1>
+    <p>이 애플리케이션이 다음 권한을 요청합니다.</p>
+    <ul>
+        <li th:each="scope : ${consent.requestedScopes}" th:text="${scope}">scope</li>
+    </ul>
+    <!-- hidden 필드는 null 비교로 조건을 건다 — th:if 의 진리값 판정은 문자열 "false"·"off"·"no" 를 거짓으로 읽어 정상 state·nonce 를 떨어뜨린다 -->
+    <!-- 동의 결과는 저장하지 않는다 — third-party 클라이언트는 authorize 마다 이 화면을 거친다 -->
+    <form method="post" th:action="@{/oauth2/consent}">
+        <input type="hidden" name="client_id" th:value="${request.clientId}">
+        <input type="hidden" name="redirect_uri" th:value="${request.redirectUri}">
+        <input type="hidden" name="scope" th:if="${request.scope != null}" th:value="${request.scope}">
+        <input type="hidden" name="state" th:if="${request.state != null}" th:value="${request.state}">
+        <input type="hidden" name="code_challenge" th:if="${request.codeChallenge != null}" th:value="${request.codeChallenge}">
+        <input type="hidden" name="code_challenge_method" th:if="${request.codeChallengeMethod != null}" th:value="${request.codeChallengeMethod}">
+        <input type="hidden" name="nonce" th:if="${request.nonce != null}" th:value="${request.nonce}">
+        <div class="actions">
+            <button type="submit" name="approve" value="false" class="deny">거부</button>
+            <button type="submit" name="approve" value="true" class="approve">동의</button>
+        </div>
+    </form>
+</main>
+</body>
+</html>

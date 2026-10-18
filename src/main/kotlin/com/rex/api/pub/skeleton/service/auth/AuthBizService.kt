@@ -116,6 +116,19 @@ class AuthBizService(
         return createSessionAndTokens(user, request.deviceType, request.deviceInfo, ipAddress)
     }
 
+    /**
+     * 인가 서버 로그인 화면의 로그인 — [login] 을 그대로 지나 IP 차단·잠금·실패 집계·계정 열거 방지를 재사용한다.
+     * 발급된 토큰은 돌려주지 않는다. 브라우저 세션은 사용자 세션 ID 만 들고, 로그아웃·강제 종료가 브라우저 세션에도 걸린다.
+     */
+    @Transactional(
+        transactionManager = "authTransactionManager",
+        noRollbackFor = [AuthenticationException::class, AccountLockedException::class, ForbiddenException::class],
+    )
+    fun loginForBrowser(
+        request: LoginRequestDto,
+        ipAddress: String?,
+    ): SessionInfo = resolveBrowserPrincipal(login(request, ipAddress).accessToken)
+
     @Transactional(transactionManager = "authTransactionManager")
     fun logout(sessionId: String) {
         userSessionEntityService.revoke(sessionId, "LOGOUT")
@@ -200,7 +213,7 @@ class AuthBizService(
 
     /**
      * 막 발급된 access 토큰으로 브라우저 세션 principal 을 만든다 — 토큰의 jti(사용자 세션)가 살아 있어야 한다.
-     * 브라우저 세션은 이 사용자 세션 ID 를 principal 로 든다.
+     * 브라우저 세션은 이 사용자 세션 ID 를 들고, 요청마다 [validateSession] 으로 폐기 여부를 다시 본다.
      */
     fun resolveBrowserPrincipal(accessToken: String): SessionInfo {
         val payload = jwtTokenBizService.validateToken(accessToken)

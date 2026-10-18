@@ -16,7 +16,7 @@
 
 ## 에러 응답 형식
 
-OAuth2 프로토콜 엔드포인트를 뺀 모든 에러 응답(필터 체인의 401·403, 메서드 보안 거부, CSRF 거부, 업무 예외)은 `ErrorResponseModel` 형식을 따릅니다:
+OAuth2 프로토콜 엔드포인트와 인가 서버 브라우저 화면(`/oauth2/login`·`/oauth2/consent` 의 검증 실패는 HTML 오류 화면 `oauth2/error`, `invalid_client` 401·그 외 400)을 뺀 모든 에러 응답(필터 체인의 401·403, 메서드 보안 거부, CSRF 거부, 업무 예외)은 `ErrorResponseModel` 형식을 따릅니다:
 
 ```json
 {

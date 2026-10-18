@@ -11,6 +11,8 @@ import com.rex.api.pub.skeleton.dto.oauth2.TokenIntrospectionResponseDto
 import com.rex.api.pub.skeleton.dto.oauth2.TokenRequestDto
 import com.rex.api.pub.skeleton.dto.oauth2.TokenRevocationRequestDto
 import com.rex.api.pub.skeleton.dto.oauth2.UpdateOAuth2ClientRequestDto
+import com.rex.api.pub.skeleton.enums.oauth2.AuthorizeNextStep
+import com.rex.api.pub.skeleton.model.oauth2.AuthorizeDecisionModel
 import com.rex.api.pub.skeleton.persistence.jpa.entity.auth.OAuth2ClientEntity
 import java.time.LocalDateTime
 import java.util.UUID
@@ -242,6 +244,14 @@ object OAuth2ClientFixture {
             redirectUri = redirectUri,
             state = state,
         )
+
+    /** 인가·동의 판정 Model — 컨트롤러 슬라이스 테스트가 MappingService 목의 반환값으로 쓴다. */
+    fun authorizeDecision(
+        nextStep: AuthorizeNextStep,
+        code: String? = null,
+        error: String? = null,
+        errorDescription: String? = null,
+    ): AuthorizeDecisionModel = AuthorizeDecisionModel(nextStep = nextStep, code = code, error = error, errorDescription = errorDescription)
 
     // ===== Token Endpoint Fixtures =====
 

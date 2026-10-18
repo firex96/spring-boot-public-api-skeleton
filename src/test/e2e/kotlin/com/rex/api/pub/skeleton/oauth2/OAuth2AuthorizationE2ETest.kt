@@ -1,15 +1,15 @@
 package com.rex.api.pub.skeleton.oauth2
 
 import com.rex.api.pub.skeleton.config.E2ETestConfiguration
-import com.rex.api.pub.skeleton.dto.oauth2.CreateOAuth2ClientRequestDto
+import com.rex.api.pub.skeleton.config.E2ETestDataSetup
 import com.rex.api.pub.skeleton.persistence.jpa.repository.auth.OAuth2AuthorizationCodeRepository
+import com.rex.api.pub.skeleton.support.BrowserSession
 import com.rex.api.pub.skeleton.support.E2eResourceJanitor
 import com.rex.api.pub.skeleton.support.E2eResources
 import com.rex.api.pub.skeleton.support.createAndLoginUser
-import com.rex.api.pub.skeleton.support.getWithAuth
+import com.rex.api.pub.skeleton.support.createOAuth2TestClient
+import com.rex.api.pub.skeleton.support.exchangeAuthorizationCode
 import com.rex.api.pub.skeleton.support.postForm
-import com.rex.api.pub.skeleton.support.postWithAuth
-import com.rex.api.pub.skeleton.support.superAdminToken
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -23,20 +23,15 @@ import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
-import org.springframework.http.MediaType
-import org.springframework.http.client.ClientHttpResponse
-import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.util.LinkedMultiValueMap
-import org.springframework.web.client.ResponseErrorHandler
-import org.springframework.web.client.RestTemplate
-import java.net.HttpURLConnection
-import java.util.UUID
+import java.net.URI
+import java.net.http.HttpResponse
 
 /**
  * OAuth2 Authorization API E2E 테스트.
  *
  * OAuth2 인증 서버 API를 실제 HTTP 요청으로 테스트합니다.
- * - Authorization Code Flow
+ * - Authorization Code Flow — 브라우저 세션(SKELETON_SESSION) 흐름: authorize → 로그인 화면 → 동의 화면 → code
  * - Token 발급 (authorization_code, refresh_token, client_credentials)
  * - Token Introspection
  * - Token Revocation
@@ -58,101 +53,56 @@ class OAuth2AuthorizationE2ETest(
     val resources = E2eResources()
     afterSpec { println("[e2e cleanup] OAuth2AuthorizationE2ETest ${janitor.cleanup(resources)}") }
 
-    // 리다이렉트를 따르지 않는 클라이언트 — 302 와 Location 자체를 단언하기 위해
-    val noRedirectClient =
-        RestTemplate(
-            object : SimpleClientHttpRequestFactory() {
-                override fun prepareConnection(connection: HttpURLConnection, httpMethod: String) {
-                    super.prepareConnection(connection, httpMethod)
-                    connection.instanceFollowRedirects = false
-                }
-            },
-        ).apply {
-            // 4xx 도 예외가 아니라 응답으로 받는다 — JSON 실패(401/400)와 Location 부재를 단언한다
-            errorHandler = object : ResponseErrorHandler {
-                override fun hasError(response: ClientHttpResponse): Boolean = false
-            }
-        }
+    // 브라우저 하나 = BrowserSession 하나 — 세션 쿠키를 유지하고 리다이렉트를 따르지 않는다(302·Location 을 단언한다)
+    fun newBrowser() = BrowserSession(restTemplate.rootUri.orEmpty())
 
-    /** 브라우저 없이 동의 화면 흐름을 흉내낸다 — 로그인 사용자 토큰으로 GET/POST /oauth2/consent. */
-    fun consentGet(userToken: String, query: String) =
-        noRedirectClient.exchange(
-            restTemplate.rootUri + "/oauth2/consent?$query",
-            HttpMethod.GET,
-            HttpEntity<Void>(HttpHeaders().apply { setBearerAuth(userToken) }),
-            String::class.java,
-        )
+    /** 서블릿 컨테이너는 Location 을 절대 URL 로 내보낸다 — 이 서버의 출처를 떼고 경로·쿼리로 다룬다. */
+    fun HttpResponse<*>.location(): String = newBrowser().location(this)
 
-    fun consentPost(userToken: String, form: LinkedMultiValueMap<String, String>) =
-        noRedirectClient.exchange(
-            restTemplate.rootUri + "/oauth2/consent",
-            HttpMethod.POST,
-            HttpEntity(
-                form,
-                HttpHeaders().apply {
-                    setBearerAuth(userToken)
-                    contentType = MediaType.APPLICATION_FORM_URLENCODED
-                },
-            ),
-            String::class.java,
-        )
+    /** authorize → (로그인 필요면) 로그인 화면 → 로그인 → 원래 authorize. 마지막 authorize 응답을 돌려준다(302 동의 또는 code). */
+    fun authorizeViaBrowser(jar: BrowserSession, query: String, loginId: String): HttpResponse<String> {
+        val first = jar.get("/oauth2/authorize?$query")
+        if (first.location() != "/oauth2/login") return first
+        val login = jar.postForm("/oauth2/login", mapOf("loginId" to loginId, "password" to E2ETestDataSetup.DEFAULT_TEST_PASSWORD, "_csrf" to jar.csrf()))
+        login.statusCode() shouldBe 302
+        login.location() shouldStartWith "/oauth2/authorize?"
+        return jar.get(login.location())
+    }
 
-    fun consentForm(clientId: String, redirectUri: String, approve: Boolean, state: String = "consent-state") =
-        LinkedMultiValueMap<String, String>().apply {
-            add("client_id", clientId)
-            add("redirect_uri", redirectUri)
-            add("scope", "openid profile email")
-            add("state", state)
-            add("approve", approve.toString())
-        }
+    /** 동의 폼 제출 — 화면의 hidden 필드와 같은 이름. CSRF 는 이 세션의 값. */
+    fun submitConsent(jar: BrowserSession, form: Map<String, String>, approve: Boolean, withCsrf: Boolean = true): HttpResponse<String> =
+        jar.postForm("/oauth2/consent", form + ("approve" to approve.toString()) + (if (withCsrf) mapOf("_csrf" to jar.csrf()) else emptyMap()))
+
+    fun consentForm(clientId: String, redirectUri: String, state: String = "consent-state", scope: String = "openid profile email") =
+        mapOf("client_id" to clientId, "redirect_uri" to redirectUri, "scope" to scope, "state" to state)
+
+    fun authorizeQuery(clientId: String, state: String = "consent-state", scope: String = "openid profile email", redirectUri: String = "http://localhost:8080/callback") =
+        "response_type=code&client_id=${enc(clientId)}&redirect_uri=${enc(redirectUri)}&scope=${enc(scope)}&state=${enc(state)}"
+
+    /** 로그인한 브라우저 세션 — 아무 authorize 없이 로그인만. */
+    fun loggedInBrowser(loginId: String): BrowserSession {
+        val jar = newBrowser()
+        jar.postForm("/oauth2/login", mapOf("loginId" to loginId, "password" to E2ETestDataSetup.DEFAULT_TEST_PASSWORD, "_csrf" to jar.csrf())).statusCode() shouldBe 302
+        return jar
+    }
 
     fun codeCount(clientId: String) = oAuth2AuthorizationCodeRepository.findAll().count { it.clientId == clientId }
-
-    fun uniqueLoginId() = "e2e_oauth2_${UUID.randomUUID().toString().take(8)}"
-    fun uniqueEmail() = "e2e_oauth2_${UUID.randomUUID().toString().take(8)}@example.com"
-    fun uniqueClientName() = "E2E OAuth2 Client ${UUID.randomUUID().toString().take(8)}"
 
     // 일반 사용자 생성 및 로그인
     // (accessToken, loginId) — signup 201·login 200 단언·정리 등록은 공용 헬퍼가 한다
     suspend fun createAndLoginUser(): Pair<String, String> =
         restTemplate.createAndLoginUser(resources, "e2e_oauth2_").let { it.accessToken to it.loginId }
 
-    // Admin 토큰 — 시드 e2e_test_super_admin(모든 권한). 로그인 실패는 실패다(일반 사용자 폴백 없음)
-    fun getAdminToken(): String = restTemplate.superAdminToken()
-
-    // OAuth2 클라이언트 생성 (Admin 권한 필요)
-    fun createOAuth2Client(adminToken: String, isFirstParty: Boolean = true, requirePkce: Boolean = false): Pair<String, String> {
-        val request = CreateOAuth2ClientRequestDto(
-            clientName = uniqueClientName(),
-            description = "E2E 테스트용 OAuth2 클라이언트",
-            grantTypes = listOf("authorization_code", "refresh_token", "client_credentials"),
-            redirectUris = listOf("http://localhost:8080/callback"),
-            scopes = listOf("openid", "profile", "email"),
-            accessTokenValidity = 3600,
-            refreshTokenValidity = 604800,
-            isFirstParty = isFirstParty,
-            requirePkce = requirePkce,
-        )
-
-        val response = restTemplate.postWithAuth<Map<String, Any>>(
-            "/admin/oauth2/clients",
-            adminToken,
-            request,
-        )
-
-        response.statusCode shouldBe HttpStatus.CREATED
-        val clientId = resources.oauth2Client(response.body.shouldNotBeNull()["clientId"] as String)
-        val clientSecret = response.body.shouldNotBeNull()["clientSecret"] as String
-        return Pair(clientId, clientSecret)
-    }
+    // OAuth2 클라이언트 생성 — 공용 헬퍼(관리자 API, 정리 등록). 이 스펙은 offline_access 없는 기본 scope 를 쓴다
+    fun createOAuth2Client(isFirstParty: Boolean = true, requirePkce: Boolean = false): Pair<String, String> =
+        restTemplate.createOAuth2TestClient(resources, scopes = listOf("openid", "profile", "email"), isFirstParty = isFirstParty, requirePkce = requirePkce)
 
     describe("POST /oauth2/token - 토큰 발급") {
 
         context("client_credentials grant type") {
             it("Access Token을 반환한다") {
                 // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
+                val client = createOAuth2Client()
 
                 val (clientId, clientSecret) = client
                 val params = LinkedMultiValueMap<String, String>().apply {
@@ -193,8 +143,7 @@ class OAuth2AuthorizationE2ETest(
         context("잘못된 grant_type으로 요청") {
             it("400 Bad Request를 반환한다") {
                 // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
+                val client = createOAuth2Client()
 
                 val (clientId, clientSecret) = client
                 val params = LinkedMultiValueMap<String, String>().apply {
@@ -214,8 +163,7 @@ class OAuth2AuthorizationE2ETest(
         context("client_credentials grant type 의 refresh_token") {
             it("client_credentials 응답에는 refresh_token 이 없다 — refresh grant 는 authorization_code 흐름(POST /oauth2/consent)에서 검증한다") {
                 // given
-                val adminToken = getAdminToken()
-                val (clientId, clientSecret) = createOAuth2Client(adminToken)
+                val (clientId, clientSecret) = createOAuth2Client()
                 val tokenParams = LinkedMultiValueMap<String, String>().apply {
                     add("grant_type", "client_credentials")
                     add("client_id", clientId)
@@ -239,8 +187,7 @@ class OAuth2AuthorizationE2ETest(
         context("유효한 토큰 검증") {
             it("active: true를 반환한다") {
                 // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
+                val client = createOAuth2Client()
 
                 val (clientId, clientSecret) = client
 
@@ -276,8 +223,7 @@ class OAuth2AuthorizationE2ETest(
         context("유효하지 않은 토큰 검증") {
             it("active: false를 반환한다") {
                 // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
+                val client = createOAuth2Client()
 
                 val (clientId, clientSecret) = client
 
@@ -303,8 +249,7 @@ class OAuth2AuthorizationE2ETest(
         context("유효한 토큰 취소") {
             it("200 OK를 반환하고 토큰이 무효화된다") {
                 // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
+                val client = createOAuth2Client()
 
                 val (clientId, clientSecret) = client
 
@@ -347,8 +292,7 @@ class OAuth2AuthorizationE2ETest(
         context("존재하지 않는 토큰 취소") {
             it("200 OK를 반환한다 (RFC 7009)") {
                 // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
+                val client = createOAuth2Client()
 
                 val (clientId, clientSecret) = client
 
@@ -370,245 +314,110 @@ class OAuth2AuthorizationE2ETest(
 
     describe("GET /oauth2/authorize - Authorization 요청") {
 
-        context("인증되지 않은 사용자가 요청") {
-            it("로그인 페이지로 리다이렉트한다") {
-                // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
+        context("로그인하지 않은 브라우저") {
+            it("로그인 화면으로 302 하고, 돌아올 곳을 쿼리로 넘기지 않는다") {
+                val (clientId, _) = createOAuth2Client()
 
-                val (clientId, _) = client
-                val url = "/oauth2/authorize?" +
-                    "response_type=code&" +
-                    "client_id=$clientId&" +
-                    "redirect_uri=http://localhost:8080/callback&" +
-                    "scope=openid profile&" +
-                    "state=test-state"
+                val response = newBrowser().get("/oauth2/authorize?${authorizeQuery(clientId, state = "test-state")}")
 
-                // when — 리다이렉트를 따라가면 POST 전용 /auth/login 에 GET 이 닿아 405 가 된다. 계약은 302 + Location 이다
-                val response = noRedirectClient.exchange(restTemplate.rootUri + url, HttpMethod.GET, null, String::class.java)
+                response.statusCode() shouldBe 302
+                response.location() shouldBe "/oauth2/login"
+            }
+        }
 
-                // then
-                response.statusCode shouldBe HttpStatus.FOUND
-                val location = response.headers.location.shouldNotBeNull().toString()
-                // Tomcat 은 sendRedirect 의 상대 경로를 절대 URL 로 만든다 — 경로·쿼리로 단언
-                location shouldContain "/auth/login?redirect_to=/oauth2/authorize&response_type=code&client_id=$clientId"
-                location shouldContain "redirect_uri="
-                location shouldContain "scope="
-                location shouldContain "state=test-state"
+        context("Bearer 만 있고 브라우저 세션이 없는 요청") {
+            it("로그인 화면으로 간다 — authorize 는 브라우저 세션으로만 인증한다(JWT 필터는 브라우저 체인에서 돌지 않는다)") {
+                val (clientId, _) = createOAuth2Client()
+                val (userToken, _) = createAndLoginUser()
+
+                val response = newBrowser().get("/oauth2/authorize?${authorizeQuery(clientId)}", bearer = userToken)
+
+                response.location() shouldBe "/oauth2/login"
             }
         }
 
         context("잘못된 client_id로 요청") {
             it("401 JSON 으로 끝나고 리다이렉트하지 않는다 (RFC 6749 §4.1.2.1 — client 가 잘못되면 redirect_uri 를 신뢰할 수 없다)") {
-                // given
-                val url = "/oauth2/authorize?" +
-                    "response_type=code&" +
-                    "client_id=invalid-client-id&" +
-                    "redirect_uri=http://localhost:8080/callback&" +
-                    "scope=openid profile"
+                val response = newBrowser().get("/oauth2/authorize?${authorizeQuery("invalid-client-id", scope = "openid profile")}")
 
-                // when
-                val response = noRedirectClient.exchange(restTemplate.rootUri + url, HttpMethod.GET, null, String::class.java)
-
-                // then
-                response.statusCode shouldBe HttpStatus.UNAUTHORIZED
-                response.headers.location shouldBe null
-                response.body.shouldNotBeNull() shouldContain "invalid_client"
+                response.statusCode() shouldBe 401
+                response.headers().firstValue("Location").isPresent shouldBe false
+                response.body() shouldContain "invalid_client"
             }
         }
 
         context("등록되지 않은 redirect_uri 로 요청") {
             it("400 JSON 으로 끝나고 그 URI 로 리다이렉트하지 않는다") {
-                // given
-                val adminToken = getAdminToken()
-                val (clientId, _) = createOAuth2Client(adminToken)
-                val url = "/oauth2/authorize?" +
-                    "response_type=code&" +
-                    "client_id=$clientId&" +
-                    "redirect_uri=https://evil.example/cb&" +
-                    "scope=openid"
+                val (clientId, _) = createOAuth2Client()
 
-                // when
-                val response = noRedirectClient.exchange(restTemplate.rootUri + url, HttpMethod.GET, null, String::class.java)
+                val response = newBrowser().get("/oauth2/authorize?${authorizeQuery(clientId, redirectUri = "https://evil.example/cb", scope = "openid")}")
 
-                // then
-                response.statusCode shouldBe HttpStatus.BAD_REQUEST
-                response.headers.location shouldBe null
-                response.body.shouldNotBeNull() shouldContain "invalid_request"
+                response.statusCode() shouldBe 400
+                response.headers().firstValue("Location").isPresent shouldBe false
+                response.body() shouldContain "invalid_request"
             }
         }
 
         context("등록 client 가 지원하지 않는 scope 로 요청") {
             it("검증된 redirect_uri 로 error=invalid_scope 리다이렉트한다") {
-                // given
-                val adminToken = getAdminToken()
-                val (clientId, _) = createOAuth2Client(adminToken)
-                val url = "/oauth2/authorize?" +
-                    "response_type=code&" +
-                    "client_id=$clientId&" +
-                    "redirect_uri=http://localhost:8080/callback&" +
-                    "scope=admin&" +
-                    "state=scope-state"
+                val (clientId, _) = createOAuth2Client()
 
-                // when
-                val response = noRedirectClient.exchange(restTemplate.rootUri + url, HttpMethod.GET, null, String::class.java)
+                val response = newBrowser().get("/oauth2/authorize?${authorizeQuery(clientId, state = "scope-state", scope = "admin")}")
 
-                // then
-                response.statusCode shouldBe HttpStatus.FOUND
-                val location = response.headers.location.shouldNotBeNull().toString()
-                location shouldStartWith "http://localhost:8080/callback?error=invalid_scope"
-                location shouldContain "state=scope-state"
+                response.statusCode() shouldBe 302
+                response.location() shouldStartWith "http://localhost:8080/callback?error=invalid_scope"
+                response.location() shouldContain "state=scope-state"
             }
         }
 
-        context("인증된 사용자가 first-party 앱 요청") {
-            it("Authorization Code를 발급하여 리다이렉트한다") {
-                // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
-                val (userToken, _) = createAndLoginUser()
+        context("first-party 앱 — 브라우저 로그인 뒤") {
+            it("동의 없이 Authorization Code 를 발급해 redirect_uri 로 보낸다") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = true)
+                val (_, loginId) = createAndLoginUser()
 
-                val (clientId, _) = client
-                val url = "/oauth2/authorize?" +
-                    "response_type=code&" +
-                    "client_id=$clientId&" +
-                    "redirect_uri=http://localhost:8080/callback&" +
-                    "scope=openid profile&" +
-                    "state=test-state"
+                val response = authorizeViaBrowser(newBrowser(), authorizeQuery(clientId, state = "test-state", scope = "openid profile"), loginId)
 
-                // when — 리다이렉트를 따르지 않는 클라이언트에 Bearer 토큰만 얹는다
-                val headers = HttpHeaders().apply { setBearerAuth(userToken) }
-                val response =
-                    noRedirectClient.exchange(restTemplate.rootUri + url, HttpMethod.GET, HttpEntity<Void>(headers), String::class.java)
-
-                // then — first-party 앱은 동의 없이 code 를 발급해 redirect_uri 로 보낸다
-                response.statusCode shouldBe HttpStatus.FOUND
-                val location = response.headers.location.shouldNotBeNull().toString()
-                location shouldStartWith "http://localhost:8080/callback?code="
-                location shouldContain "state=test-state"
+                response.statusCode() shouldBe 302
+                response.location() shouldStartWith "http://localhost:8080/callback?code="
+                response.location() shouldContain "state=test-state"
             }
         }
     }
 
-    describe("GET /oauth2/consent - 동의 정보 조회") {
+    describe("브라우저 인가 흐름 — 로그인·동의 (third-party)") {
 
-        context("인증된 사용자가 third-party 클라이언트의 동의 정보 조회") {
-            it("200 과 클라이언트 정보·요청 스코프·redirect_uri·state 를 돌려준다") {
-                // given
-                val adminToken = getAdminToken()
-                val (clientId, _) = createOAuth2Client(adminToken, isFirstParty = false)
-                val (userToken, _) = createAndLoginUser()
-
-                // when
-                val response = restTemplate.getWithAuth<Map<String, Any>>(
-                    "/oauth2/consent?client_id=$clientId&redirect_uri=http://localhost:8080/callback&scope=openid profile email&state=c1",
-                    userToken,
-                )
-
-                // then
-                response.statusCode shouldBe HttpStatus.OK
-                val body = response.body.shouldNotBeNull()
-                body["clientId"] shouldBe clientId
-                body["clientName"].shouldNotBeNull()
-                body["requestedScopes"] shouldBe listOf("openid", "profile", "email")
-                body["redirectUri"] shouldBe "http://localhost:8080/callback"
-                body["state"] shouldBe "c1"
-            }
-        }
-
-        context("PKCE 를 요구하는 클라이언트") {
-            it("code_challenge 를 넘기면 200, 빠지면 400 invalid_request") {
-                // given
-                val adminToken = getAdminToken()
-                val (clientId, _) = createOAuth2Client(adminToken, isFirstParty = false, requirePkce = true)
-                val (userToken, _) = createAndLoginUser()
-                val base = "client_id=$clientId&redirect_uri=http://localhost:8080/callback&scope=openid"
-
-                // when
-                val withChallenge = consentGet(userToken, "$base&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256")
-                val withoutChallenge = consentGet(userToken, base)
-
-                // then
-                withChallenge.statusCode shouldBe HttpStatus.OK
-                withoutChallenge.statusCode shouldBe HttpStatus.BAD_REQUEST
-                withoutChallenge.body.shouldNotBeNull() shouldContain "invalid_request"
-            }
-        }
-
-        context("미지 client_id 로 동의 정보 조회") {
-            it("401 invalid_client JSON, Location 없음") {
-                // given
-                val (userToken, _) = createAndLoginUser()
-
-                // when
-                val response = consentGet(userToken, "client_id=nope&redirect_uri=http://localhost:8080/callback&scope=openid")
-
-                // then
-                response.statusCode shouldBe HttpStatus.UNAUTHORIZED
-                response.headers.location shouldBe null
-                response.body.shouldNotBeNull() shouldContain "invalid_client"
-            }
-        }
-
-        context("인증 없이 동의 정보 조회") {
-            it("401 Unauthorized를 반환한다") {
-                // given
-                val adminToken = getAdminToken()
-                val client = createOAuth2Client(adminToken)
-
-                val (clientId, _) = client
-                val url = "/oauth2/consent?" +
-                    "client_id=$clientId&" +
-                    "redirect_uri=http://localhost:8080/callback&" +
-                    "scope=openid profile"
-
-                // when
-                val response = restTemplate.getForEntity(url, String::class.java)
-
-                // then
-                response.statusCode shouldBe HttpStatus.UNAUTHORIZED
-            }
-        }
-    }
-
-    describe("POST /oauth2/consent - 동의 처리") {
-
-        context("approve — 등록 redirect_uri") {
+        context("authorize → 로그인 → 동의 화면 → 승인") {
             it("302 code → authorization_code 교환 200(access·refresh) → refresh_token grant 200") {
                 // given
-                val adminToken = getAdminToken()
-                val (clientId, clientSecret) = createOAuth2Client(adminToken, isFirstParty = false)
-                val (userToken, _) = createAndLoginUser()
+                val (clientId, clientSecret) = createOAuth2Client(isFirstParty = false)
+                val (_, loginId) = createAndLoginUser()
+                val jar = newBrowser()
 
-                // when — 동의
-                val consent = consentPost(userToken, consentForm(clientId, "http://localhost:8080/callback", approve = true))
+                // when — authorize → 로그인 → 원래 authorize → 동의 화면으로
+                val authorize = authorizeViaBrowser(jar, authorizeQuery(clientId), loginId)
+                authorize.statusCode() shouldBe 302
+                authorize.location() shouldStartWith "/oauth2/consent?"
 
-                // then — 검증된 redirect_uri 로 code 를 붙여 302
-                consent.statusCode shouldBe HttpStatus.FOUND
-                val location = consent.headers.location.shouldNotBeNull().toString()
-                location shouldStartWith "http://localhost:8080/callback?code="
-                location shouldContain "state=consent-state"
-                val code = location.substringAfter("code=").substringBefore("&")
+                // then — 동의 화면은 HTML 이고 클라이언트·scope 를 보여 준다
+                val consentPage = jar.get(authorize.location())
+                consentPage.statusCode() shouldBe 200
+                consentPage.headers().firstValue("Content-Type").orElse("") shouldContain "text/html"
+                consentPage.body() shouldContain "E2E OAuth2 Client"
+                consentPage.body() shouldContain "profile"
+
+                // when — 승인
+                val consent = submitConsent(jar, consentForm(clientId, "http://localhost:8080/callback"), approve = true)
+
+                // then — 검증된 redirect_uri 로 code·state
+                consent.statusCode() shouldBe 302
+                consent.location() shouldStartWith "http://localhost:8080/callback?code="
+                consent.location() shouldContain "state=consent-state"
+                val code = consent.location().substringAfter("code=").substringBefore("&")
 
                 // when — code 교환
-                val tokenResponse = restTemplate.postForm<Map<String, Any>>(
-                    "/oauth2/token",
-                    LinkedMultiValueMap<String, String>().apply {
-                        add("grant_type", "authorization_code")
-                        add("code", code)
-                        add("redirect_uri", "http://localhost:8080/callback")
-                        add("client_id", clientId)
-                        add("client_secret", clientSecret)
-                    },
-                )
+                val refreshToken = restTemplate.exchangeAuthorizationCode(clientId, clientSecret, code)["refresh_token"].shouldNotBeNull() as String
 
-                // then
-                tokenResponse.statusCode shouldBe HttpStatus.OK
-                val tokens = tokenResponse.body.shouldNotBeNull()
-                tokens["access_token"].shouldNotBeNull()
-                val refreshToken = tokens["refresh_token"].shouldNotBeNull() as String
-
-                // when — refresh grant
+                // when — refresh_token grant
                 val refreshed = restTemplate.postForm<Map<String, Any>>(
                     "/oauth2/token",
                     LinkedMultiValueMap<String, String>().apply {
@@ -618,66 +427,186 @@ class OAuth2AuthorizationE2ETest(
                         add("client_secret", clientSecret)
                     },
                 )
-
-                // then
                 refreshed.statusCode shouldBe HttpStatus.OK
                 refreshed.body.shouldNotBeNull()["access_token"].shouldNotBeNull()
             }
         }
 
-        context("approve — 등록되지 않은 redirect_uri") {
-            it("400 JSON, Location 없음, 코드 미발급 (오픈 리다이렉트·코드 유출 차단)") {
-                // given
-                val adminToken = getAdminToken()
-                val (clientId, _) = createOAuth2Client(adminToken, isFirstParty = false)
-                val (userToken, _) = createAndLoginUser()
+        context("state·nonce 가 \"false\"·\"off\" 같은 문자열") {
+            it("렌더링된 동의 폼의 hidden 값을 그대로 제출하면 state 가 돌아오고 id_token nonce 가 유지된다") {
+                val (clientId, clientSecret) = createOAuth2Client(isFirstParty = false)
+                val (_, loginId) = createAndLoginUser()
+                val jar = newBrowser()
+                val authorize = authorizeViaBrowser(jar, authorizeQuery(clientId, state = "false") + "&nonce=off", loginId)
+
+                // 화면이 실제로 렌더링한 hidden 필드만 모아 제출한다 — 테스트가 폼 값을 지어내지 않는다
+                val page = jar.get(authorize.location()).body()
+                val hidden = Regex("""<input type="hidden" name="([a-z_]+)" value="([^"]*)"""").findAll(page).associate { it.groupValues[1] to it.groupValues[2] }
+                hidden["state"] shouldBe "false"
+                hidden["nonce"] shouldBe "off"
+                val consent = jar.postForm("/oauth2/consent", hidden + ("approve" to "true"))
+
+                consent.location() shouldContain "state=false"
+                val code = consent.location().substringAfter("code=").substringBefore("&")
+                val idToken = restTemplate.exchangeAuthorizationCode(clientId, clientSecret, code)["id_token"].shouldNotBeNull() as String
+                String(java.util.Base64.getUrlDecoder().decode(idToken.split(".")[1]), Charsets.UTF_8) shouldContain "\"nonce\":\"off\""
+            }
+        }
+
+        context("동의 거부") {
+            it("검증된 redirect_uri 로 error=access_denied·state 302") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = false)
+                val (_, loginId) = createAndLoginUser()
+                val jar = newBrowser()
+                authorizeViaBrowser(jar, authorizeQuery(clientId), loginId)
+
+                val response = submitConsent(jar, consentForm(clientId, "http://localhost:8080/callback"), approve = false)
+
+                response.statusCode() shouldBe 302
+                response.location() shouldStartWith "http://localhost:8080/callback?error=access_denied"
+                response.location() shouldContain "state=consent-state"
+            }
+        }
+
+        context("CSRF 토큰 없이 동의 제출") {
+            it("403 ErrorResponseModel — 코드를 발급하지 않는다") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = false)
+                val (_, loginId) = createAndLoginUser()
+                val jar = loggedInBrowser(loginId)
                 val before = codeCount(clientId)
 
-                // when
-                val response = consentPost(userToken, consentForm(clientId, "https://evil.example/cb", approve = true))
+                val response = submitConsent(jar, consentForm(clientId, "http://localhost:8080/callback"), approve = true, withCsrf = false)
 
-                // then
-                response.statusCode shouldBe HttpStatus.BAD_REQUEST
-                response.headers.location shouldBe null
-                response.body.shouldNotBeNull() shouldContain "invalid_request"
+                response.statusCode() shouldBe 403
+                response.body() shouldContain "FORBIDDEN_ERROR"
                 codeCount(clientId) shouldBe before
             }
         }
 
-        context("deny — 등록 redirect_uri") {
-            it("검증된 redirect_uri 로 error=access_denied 302") {
-                // given
-                val adminToken = getAdminToken()
-                val (clientId, _) = createOAuth2Client(adminToken, isFirstParty = false)
-                val (userToken, _) = createAndLoginUser()
+        context("로그인하지 않은 브라우저의 동의 화면") {
+            it("로그인 화면으로 302") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = false)
 
-                // when
-                val response = consentPost(userToken, consentForm(clientId, "http://localhost:8080/callback", approve = false))
+                val response = newBrowser().get("/oauth2/consent?client_id=$clientId&redirect_uri=http://localhost:8080/callback&scope=openid")
 
-                // then
-                response.statusCode shouldBe HttpStatus.FOUND
-                val location = response.headers.location.shouldNotBeNull().toString()
-                location shouldStartWith "http://localhost:8080/callback?error=access_denied"
-                location shouldContain "state=consent-state"
+                response.statusCode() shouldBe 302
+                response.location() shouldBe "/oauth2/login"
             }
         }
 
-        context("deny — 등록되지 않은 redirect_uri") {
-            it("deny 도 검증 뒤다 — 400 JSON, Location 없음, 코드 미발급") {
-                // given
-                val adminToken = getAdminToken()
-                val (clientId, _) = createOAuth2Client(adminToken, isFirstParty = false)
-                val (userToken, _) = createAndLoginUser()
-                val before = codeCount(clientId)
+        context("사용자 세션을 폐기하면(전체 로그아웃)") {
+            it("같은 브라우저 세션의 다음 authorize 는 다시 로그인 화면으로 간다") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = true)
+                val (userToken, loginId) = createAndLoginUser()
+                val jar = newBrowser()
+                authorizeViaBrowser(jar, authorizeQuery(clientId), loginId).location() shouldStartWith "http://localhost:8080/callback?code="
 
-                // when
-                val response = consentPost(userToken, consentForm(clientId, "https://evil.example/cb", approve = false))
+                // when — Bearer 세션을 뺀 이 사용자의 모든 세션(브라우저 로그인 세션 포함) 폐기
+                restTemplate.exchange(
+                    "/users/me/sessions",
+                    HttpMethod.DELETE,
+                    HttpEntity<Void>(HttpHeaders().apply { setBearerAuth(userToken) }),
+                    String::class.java,
+                ).statusCode.is2xxSuccessful shouldBe true
 
                 // then
-                response.statusCode shouldBe HttpStatus.BAD_REQUEST
-                response.headers.location shouldBe null
+                jar.get("/oauth2/authorize?${authorizeQuery(clientId)}").location() shouldBe "/oauth2/login"
+            }
+        }
+
+        context("브라우저 세션은 사용자 A, Bearer 는 사용자 B") {
+            it("코드는 A 로 발급된다 — Bearer 는 이 경로에서 읽히지 않는다") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = true)
+                val userA = restTemplate.createAndLoginUser(resources, "e2e_oauth2_")
+                val userB = restTemplate.createAndLoginUser(resources, "e2e_oauth2_")
+                val jar = loggedInBrowser(userA.loginId)
+
+                val response = jar.get("/oauth2/authorize?${authorizeQuery(clientId, scope = "openid")}", bearer = userB.accessToken)
+
+                val code = response.location().substringAfter("code=").substringBefore("&")
+                oAuth2AuthorizationCodeRepository.findAll().single { it.code == code }.userId shouldBe userA.userId
+            }
+        }
+    }
+
+    describe("동의 화면·동의 제출의 비리다이렉트 오류 — HTML 오류 화면, Location 없음, 코드 미발급") {
+
+        context("PKCE 를 요구하는 클라이언트의 동의 화면") {
+            it("code_challenge 를 넘기면 200, 빠지면 400 invalid_request") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = false, requirePkce = true)
+                val (_, loginId) = createAndLoginUser()
+                val jar = loggedInBrowser(loginId)
+                val base = "client_id=$clientId&redirect_uri=http://localhost:8080/callback&scope=openid"
+
+                val withChallenge = jar.get("/oauth2/consent?$base&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256")
+                val withoutChallenge = jar.get("/oauth2/consent?$base")
+
+                withChallenge.statusCode() shouldBe 200
+                withoutChallenge.statusCode() shouldBe 400
+                withoutChallenge.body() shouldContain "invalid_request"
+            }
+        }
+
+        mapOf(
+            "approve — 등록되지 않은 redirect_uri" to Triple(true, "https://evil.example/cb", 400),
+            "deny — 등록되지 않은 redirect_uri" to Triple(false, "https://evil.example/cb", 400),
+        ).forEach { (name, case) ->
+            context(name) {
+                it("${case.third} HTML, Location 없음, 코드 미발급 (오픈 리다이렉트·코드 유출 차단)") {
+                    val (clientId, _) = createOAuth2Client(isFirstParty = false)
+                    val (_, loginId) = createAndLoginUser()
+                    val jar = loggedInBrowser(loginId)
+                    val before = codeCount(clientId)
+
+                    val response = submitConsent(jar, consentForm(clientId, case.second), approve = case.first)
+
+                    response.statusCode() shouldBe case.third
+                    response.headers().firstValue("Location").isPresent shouldBe false
+                    response.headers().firstValue("Content-Type").orElse("") shouldContain "text/html"
+                    response.body() shouldContain "invalid_request"
+                    codeCount(clientId) shouldBe before
+                }
+            }
+        }
+
+        context("미지 client_id 로 동의 제출") {
+            it("401 invalid_client HTML, Location 없음") {
+                val (_, loginId) = createAndLoginUser()
+                val jar = loggedInBrowser(loginId)
+
+                val response = submitConsent(jar, consentForm("nope", "http://localhost:8080/callback"), approve = true)
+
+                response.statusCode() shouldBe 401
+                response.headers().firstValue("Location").isPresent shouldBe false
+                response.body() shouldContain "invalid_client"
+            }
+        }
+
+        context("허용되지 않은 scope·잘못된 code_challenge_method 로 동의 제출") {
+            it("400 HTML, Location 없음, 코드 미발급") {
+                val (clientId, _) = createOAuth2Client(isFirstParty = false)
+                val (_, loginId) = createAndLoginUser()
+                val jar = loggedInBrowser(loginId)
+                val before = codeCount(clientId)
+
+                val badScope = submitConsent(jar, consentForm(clientId, "http://localhost:8080/callback", scope = "admin"), approve = true)
+                val badMethod =
+                    submitConsent(
+                        jar,
+                        consentForm(clientId, "http://localhost:8080/callback") + mapOf("code_challenge" to "abc", "code_challenge_method" to "S512"),
+                        approve = true,
+                    )
+
+                listOf(badScope, badMethod).forEach { response ->
+                    response.statusCode() shouldBe 400
+                    response.headers().firstValue("Location").isPresent shouldBe false
+                }
+                badScope.body() shouldContain "invalid_scope"
+                badMethod.body() shouldContain "invalid_request"
                 codeCount(clientId) shouldBe before
             }
         }
     }
 })
+
+private fun enc(value: String): String = BrowserSession.encode(value)

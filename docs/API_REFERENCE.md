@@ -708,7 +708,7 @@ OAuth Provider로부터의 콜백을 처리합니다. state 를 먼저 소비하
 
 ### GET /oauth2/authorize
 
-Authorization 요청 (Authorization Code Flow 시작)
+Authorization 요청 (Authorization Code Flow 시작) — **브라우저가 이동하는 경로**다. 브라우저 체인(세션 쿠키 `SKELETON_SESSION`)을 타며, 로그인 판정은 브라우저 세션으로만 한다(Bearer 헤더는 읽지 않는다).
 
 #### Query Parameters
 
@@ -718,24 +718,37 @@ Authorization 요청 (Authorization Code Flow 시작)
 | client_id | Y | 클라이언트 ID |
 | redirect_uri | Y | 리다이렉트 URI |
 | scope | N | 요청 범위 (space-separated) |
-| state | N | CSRF 방지용 |
+| state | N | 클라이언트의 CSRF 방지 값 — 그대로 돌려준다 |
 | code_challenge | N | PKCE code challenge |
 | code_challenge_method | N | `plain` 또는 `S256` |
 | nonce | N | ID Token replay 방지용 |
 
 #### Response
 
-인증되지 않은 경우: 로그인 페이지로 리다이렉트
-인증된 경우 (1st party): `redirect_uri?code=xxx&state=yyy`로 리다이렉트
-인증된 경우 (3rd party): 동의 페이지로 리다이렉트
+| 상황 | 응답 |
+|------|------|
+| client 불량 | `401` JSON `invalid_client` — 리다이렉트하지 않는다 |
+| redirect_uri 불량 | `400` JSON `invalid_request` — 리다이렉트하지 않는다 |
+| 그 밖의 파라미터 오류 | `302 redirect_uri?error=...&state=...` |
+| 브라우저 세션 미로그인 | `302 /oauth2/login` — 원래 authorize URL 은 서버가 다시 조립해 **세션에** 둔다(쿼리로 넘기지 않는다) |
+| 로그인 · 1st party | `302 redirect_uri?code=xxx&state=yyy` |
+| 로그인 · 3rd party | `302 /oauth2/consent?...` (동의 화면) |
+
+---
+
+### GET /oauth2/login · POST /oauth2/login
+
+인가 서버 로그인 화면(HTML). `POST` 는 폼(`loginId`, `password`, `_csrf`)이다. `POST /auth/login` 과 같은 로그인 보호(IP 차단·계정 잠금·실패 집계)를 지나고, 토큰을 내주지 않고 브라우저 세션에 로그인시킨다(세션 ID 교체).
+
+성공: `302` 세션에 둔 authorize URL(없으면 `/oauth2/login?success`) · 실패: `200` 같은 화면에 메시지
 
 ---
 
 ### GET /oauth2/consent
 
-동의 정보 조회
+동의 화면(HTML) — 클라이언트 이름과 요청 scope 를 보여 주고 승인·거부 폼을 낸다.
 
-**인증 필요**
+**브라우저 세션 로그인 필요** (없으면 `302 /oauth2/login`)
 
 #### Query Parameters
 
@@ -744,45 +757,36 @@ Authorization 요청 (Authorization Code Flow 시작)
 | client_id | Y | 클라이언트 ID |
 | redirect_uri | Y | 리다이렉트 URI |
 | scope | N | 요청 범위 |
-| state | N | CSRF 방지용 |
+| state | N | 클라이언트의 state |
+| code_challenge · code_challenge_method · nonce | N | authorize 에서 받은 값 그대로 |
 
-#### Response `200 OK`
+검증 실패(client·redirect_uri·scope·PKCE)는 `oauth2/error` HTML(`invalid_client` 401, 그 외 400)이고 리다이렉트하지 않는다.
 
-```json
-{
-  "clientId": "my-app",
-  "clientName": "My Application",
-  "requestedScopes": ["openid", "profile", "email"],
-  "scopeDescriptions": {
-    "openid": "OpenID Connect 인증",
-    "profile": "프로필 정보 접근",
-    "email": "이메일 주소 접근"
-  }
-}
-```
+동의 결과는 저장하지 않는다 — third-party 클라이언트는 authorize 마다 이 화면을 거친다.
 
 ---
 
 ### POST /oauth2/consent
 
-동의 처리
+동의 처리 — 동의 화면의 폼 제출.
 
-**인증 필요**
+**브라우저 세션 로그인 + CSRF(`_csrf`) 필요** (CSRF 없음 `403` `ErrorResponseModel`)
 
-#### Query Parameters
+#### Form Parameters
 
 | 파라미터 | 필수 | 설명 |
 |---------|------|------|
 | client_id | Y | 클라이언트 ID |
 | redirect_uri | Y | 리다이렉트 URI |
-| scope | N | 요청 범위 |
-| state | N | CSRF 방지용 |
+| scope · state · code_challenge · code_challenge_method · nonce | N | 동의 화면의 hidden 값 |
 | approve | Y | 동의 여부 (`true`/`false`) |
+| _csrf | Y | 화면의 CSRF 토큰 |
 
-#### Response `302 Redirect`
+#### Response
 
-동의: `redirect_uri?code=xxx&state=yyy`
-거부: `redirect_uri?error=access_denied&error_description=...&state=yyy`
+동의: `302 redirect_uri?code=xxx&state=yyy`
+거부: `302 redirect_uri?error=access_denied&error_description=...&state=yyy`
+검증 실패: `400`/`401` HTML 오류 화면, Location 없음, 코드 미발급
 
 ---
 

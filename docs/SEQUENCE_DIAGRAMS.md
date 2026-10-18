@@ -709,14 +709,18 @@ sequenceDiagram
 
 ### 4.1 Authorization Code Flow
 
+authorize·로그인·동의는 브라우저 체인(세션 쿠키 `SKELETON_SESSION` + CSRF)을 탄다. Bearer 헤더는 이 경로에서 읽히지 않는다.
+
 ```mermaid
 sequenceDiagram
     autonumber
     participant ThirdPartyApp as 3rd Party App
     participant Browser
-    participant OAuth2AuthController
-    participant OAuth2AuthMappingService
+    participant OAuth2AuthController as OAuth2AuthorizationController
+    participant OAuth2BrowserController
+    participant OAuth2AuthMappingService as OAuth2AuthorizationMappingService
     participant OAuth2AuthorizationBizService
+    participant AuthBizService
     participant OAuth2ClientEntityService
     participant AuthCodeEntityService
     participant Redis
@@ -724,39 +728,42 @@ sequenceDiagram
 
     Note over ThirdPartyApp: 1. Authorization Request
     ThirdPartyApp->>Browser: Redirect to /oauth2/authorize
-    Browser->>OAuth2AuthController: GET /oauth2/authorize<br/>?client_id=xxx&redirect_uri=yyy<br/>&response_type=code&scope=openid profile
+    Browser->>OAuth2AuthController: GET /oauth2/authorize<br/>?client_id=xxx&redirect_uri=yyy<br/>&response_type=code&scope=openid profile&state=s
 
-    OAuth2AuthController->>OAuth2AuthMappingService: authorize(request)
-    OAuth2AuthMappingService->>OAuth2AuthorizationBizService: initiateAuthorization(params)
+    OAuth2AuthController->>OAuth2AuthMappingService: authorize(request, 브라우저 세션 userId?)
+    Note over OAuth2AuthorizationBizService: client·redirect_uri 검증 — 실패면 JSON 401/400, 리다이렉트 없음
+    OAuth2AuthorizationBizService->>OAuth2ClientEntityService: getActiveClient(clientId)
+    OAuth2AuthorizationBizService-->>OAuth2AuthController: LOGIN_REQUIRED
+    Note over OAuth2AuthController: 원래 authorize URL 을 서버가 다시 조립해<br/>세션 PENDING_AUTHORIZATION_REQUEST 에 둔다
+    OAuth2AuthController-->>Browser: 302 /oauth2/login
 
-    Note over OAuth2AuthorizationBizService: Client 검증
-    OAuth2AuthorizationBizService->>OAuth2ClientEntityService: getByClientId(clientId)
-    OAuth2ClientEntityService->>DB: SELECT * FROM oauth_clients
-    DB-->>OAuth2ClientEntityService: OAuthClientEntity
-    OAuth2ClientEntityService-->>OAuth2AuthorizationBizService: OAuthClientDto
+    Note over Browser: 2. 로그인
+    Browser->>OAuth2BrowserController: GET /oauth2/login
+    OAuth2BrowserController-->>Browser: 200 로그인 화면 HTML (_csrf)
+    Browser->>OAuth2BrowserController: POST /oauth2/login {loginId, password, _csrf}
+    OAuth2BrowserController->>AuthBizService: loginForBrowser(...) — IP 차단·잠금·실패 집계 재사용
+    AuthBizService->>DB: INSERT user_sessions
+    AuthBizService-->>OAuth2BrowserController: SessionInfo (토큰은 내주지 않는다)
+    Note over OAuth2BrowserController: changeSessionId + SecurityContext 를 세션에 저장
+    OAuth2BrowserController-->>Browser: 302 세션에 둔 authorize URL
 
-    Note over OAuth2AuthorizationBizService: Redirect URI 검증
-    OAuth2AuthorizationBizService->>OAuth2AuthorizationBizService: validateRedirectUri(redirectUri)
+    Browser->>OAuth2AuthController: GET /oauth2/authorize?... (로그인된 세션)
+    Note over OAuth2AuthController: BrowserSessionValidationFilter 가 사용자 세션 폐기 여부를 먼저 본다
+    OAuth2AuthorizationBizService-->>OAuth2AuthController: CONSENT_REQUIRED (3rd party)
+    OAuth2AuthController-->>Browser: 302 /oauth2/consent?...
 
-    OAuth2AuthorizationBizService-->>OAuth2AuthMappingService: ConsentPageDto
-    OAuth2AuthMappingService-->>OAuth2AuthController: ConsentPageModel
-    OAuth2AuthController-->>Browser: 200 OK<br/>동의 화면 HTML
+    Note over Browser: 3. 동의
+    Browser->>OAuth2BrowserController: GET /oauth2/consent?...
+    OAuth2BrowserController->>OAuth2AuthMappingService: getConsentInfo(request)
+    OAuth2BrowserController-->>Browser: 200 동의 화면 HTML (클라이언트 이름·scope·_csrf)
+    Browser->>OAuth2BrowserController: POST /oauth2/consent {..., approve, _csrf}
+    OAuth2BrowserController->>OAuth2AuthMappingService: consent(request, userId, approve)
 
-    Note over Browser: 2. 사용자 동의
-    Browser->>OAuth2AuthController: POST /oauth2/authorize<br/>{client_id, approved_scopes, ...}
-
-    OAuth2AuthController->>OAuth2AuthMappingService: processConsent(consentRequest)
-    OAuth2AuthMappingService->>OAuth2AuthorizationBizService: generateAuthorizationCode(params)
-
-    Note over OAuth2AuthorizationBizService: Authorization Code 생성
-    OAuth2AuthorizationBizService->>OAuth2AuthorizationBizService: generateSecureCode()
+    Note over OAuth2AuthorizationBizService: 검증 뒤 Authorization Code 생성 (거부면 access_denied)
     OAuth2AuthorizationBizService->>AuthCodeEntityService: create(AuthCodeDto)
-    AuthCodeEntityService->>DB: INSERT INTO oauth_authorization_codes
-    DB-->>AuthCodeEntityService: AuthCodeEntity
+    AuthCodeEntityService->>DB: INSERT INTO oauth2_authorization_codes
 
-    OAuth2AuthorizationBizService-->>OAuth2AuthMappingService: AuthCodeDto
-    OAuth2AuthMappingService-->>OAuth2AuthController: RedirectModel
-    OAuth2AuthController-->>Browser: 302 Redirect<br/>{redirect_uri}?code=xxx&state=yyy
+    OAuth2BrowserController-->>Browser: 302 Redirect<br/>{redirect_uri}?code=xxx&state=s
 
     Browser-->>ThirdPartyApp: code=xxx
 

@@ -28,9 +28,6 @@ class DemoAuthController {
     @GetMapping("/verify-email")
     fun verifyEmail(): String = "demo/auth/verify-email"
 
-    @GetMapping("/oauth2-consent")
-    fun oauth2Consent(): String = "demo/auth/oauth2-consent"
-
     @GetMapping("/callback")
     fun callback(): String = "demo/auth/callback"
 }

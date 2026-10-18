@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>인가 요청 오류</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #f5f6f8; margin: 0; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+        main { background: #fff; padding: 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, .08); width: 100%; max-width: 420px; }
+        h1 { font-size: 20px; margin: 0 0 12px; }
+        code { background: #f0f1f4; padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+<main>
+    <!-- 클라이언트·redirect_uri 를 믿을 수 없는 오류 — 클라이언트로 리다이렉트하지 않고 여기서 끝낸다 (RFC 6749 §4.1.2.1) -->
+    <h1>인가 요청을 처리할 수 없습니다</h1>
+    <p><code th:text="${error}">invalid_request</code></p>
+    <p th:if="${errorDescription != null}" th:text="${errorDescription}"></p>
+</main>
+</body>
+</html>

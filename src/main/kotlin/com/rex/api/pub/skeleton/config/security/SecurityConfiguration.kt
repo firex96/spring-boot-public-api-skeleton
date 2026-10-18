@@ -2,7 +2,9 @@ package com.rex.api.pub.skeleton.config.security
 
 import com.rex.api.pub.skeleton.config.audit.AuditProperties
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSecurityPaths
+import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionValidationFilter
 import com.rex.api.pub.skeleton.enums.ErrorCode
+import com.rex.api.pub.skeleton.service.auth.AuthBizService
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
@@ -18,10 +20,13 @@ import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.web.AuthenticationEntryPoint
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.access.AccessDeniedHandler
+import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository
 import org.springframework.security.web.context.SecurityContextHolderFilter
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher
+import org.springframework.security.web.util.matcher.AnyRequestMatcher
 import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.CorsConfigurationSource
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
@@ -36,6 +41,7 @@ class SecurityConfiguration(
     private val securityErrorResponseWriter: SecurityErrorResponseWriter,
     private val customPermissionEvaluator: CustomPermissionEvaluator,
     private val auditProperties: AuditProperties,
+    private val authBizService: AuthBizService,
 ) {
     /**
      * 감사 주체를 채우는 필터.
@@ -71,8 +77,8 @@ class SecurityConfiguration(
     /**
      * 브라우저 체인 — 사용자 에이전트가 리다이렉트로 오가는 흐름(경로 정본: [BrowserSecurityPaths]).
      *
-     * 세션(`SKELETON_SESSION`, Redis)과 CSRF 를 쓰고 JWT 는 읽지 않는다. 세션 속성은 SecurityContext·CSRF 토큰
-     * 둘뿐이다 — 요청 캐시를 끄는 이유다. 1회 소비 값(state·토큰 교환)은 세션이 아니라 Redis `GETDEL` 로 다룬다.
+     * 세션(`SKELETON_SESSION`, Redis)과 CSRF 를 쓰고 JWT 는 읽지 않는다. 세션 속성은 SecurityContext·CSRF 토큰·
+     * 대기 중인 authorize URL 셋뿐이다 — 요청 캐시를 끄는 이유다. 1회 소비 값(state·토큰 교환)은 세션이 아니라 Redis `GETDEL` 로 다룬다.
      * CORS 는 끈다: 쿠키를 싣는 경로를 교차 출처에 열지 않는다.
      */
     @Bean
@@ -91,16 +97,24 @@ class SecurityConfiguration(
                         BrowserSecurityPaths.SOCIAL_AUTHORIZE,
                         BrowserSecurityPaths.SOCIAL_CALLBACK,
                         BrowserSecurityPaths.DEMO_CALLBACK,
+                        BrowserSecurityPaths.OAUTH2_AUTHORIZE,
+                        BrowserSecurityPaths.OAUTH2_LOGIN,
                     ).permitAll()
-                    .requestMatchers(BrowserSecurityPaths.SESSION_API).authenticated()
+                    .requestMatchers(BrowserSecurityPaths.OAUTH2_CONSENT, BrowserSecurityPaths.SESSION_API).authenticated()
                     .anyRequest().denyAll()
             }
             .exceptionHandling { ex ->
                 ex
-                    .authenticationEntryPoint(customAuthenticationEntryPoint())
+                    // JSON API(토큰 교환)는 401 본문, 화면 경로(동의)는 로그인 화면으로
+                    .defaultAuthenticationEntryPointFor(
+                        customAuthenticationEntryPoint(),
+                        PathPatternRequestMatcher.withDefaults().matcher(BrowserSecurityPaths.SESSION_API),
+                    ).defaultAuthenticationEntryPointFor(LoginUrlAuthenticationEntryPoint(BrowserSecurityPaths.OAUTH2_LOGIN), AnyRequestMatcher.INSTANCE)
                     .accessDeniedHandler(customAccessDeniedHandler())
             }
-            .addFilterAfter(securityAuditorContextFilter(), SecurityContextHolderFilter::class.java)
+            // 세션이 가리키는 사용자 세션이 폐기됐으면(로그아웃·강제 종료) 브라우저 세션도 버린다
+            .addFilterAfter(BrowserSessionValidationFilter(authBizService), SecurityContextHolderFilter::class.java)
+            .addFilterAfter(securityAuditorContextFilter(), BrowserSessionValidationFilter::class.java)
             .build()
 
     @Bean
@@ -122,9 +136,8 @@ class SecurityConfiguration(
                     .requestMatchers("/user/password/reset-request", "/user/password/reset").permitAll()
                     // 이메일 인증 (비인증 접근)
                     .requestMatchers("/user/email/verify").permitAll()
-                    // OAuth2 Authorization Server 엔드포인트
-                    .requestMatchers("/oauth2/authorize", "/oauth2/token", "/oauth2/introspect", "/oauth2/revoke").permitAll()
-                    .requestMatchers("/oauth2/consent").authenticated()
+                    // OAuth2 Authorization Server 엔드포인트 (authorize·login·consent 는 브라우저 체인)
+                    .requestMatchers("/oauth2/token", "/oauth2/introspect", "/oauth2/revoke").permitAll()
                     // OpenID Connect 엔드포인트
                     .requestMatchers("/.well-known/openid-configuration", "/.well-known/jwks.json").permitAll()
                     .requestMatchers("/oauth2/userinfo").authenticated()

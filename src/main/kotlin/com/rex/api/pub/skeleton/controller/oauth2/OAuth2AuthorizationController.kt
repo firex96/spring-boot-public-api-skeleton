@@ -1,11 +1,11 @@
 package com.rex.api.pub.skeleton.controller.oauth2
 
 import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
+import com.rex.api.pub.skeleton.config.security.browser.AuthorizationRequestStore
+import com.rex.api.pub.skeleton.controller.oauth2.support.AuthorizeRedirectUrlBuilder
 import com.rex.api.pub.skeleton.dto.oauth2.AuthorizationRequestDto
 import com.rex.api.pub.skeleton.enums.oauth2.AuthorizeNextStep
 import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
-import com.rex.api.pub.skeleton.model.oauth2.AuthorizationConsentModel
-import com.rex.api.pub.skeleton.model.oauth2.AuthorizeDecisionModel
 import com.rex.api.pub.skeleton.model.oauth2.OAuth2ErrorResponseModel
 import com.rex.api.pub.skeleton.model.oauth2.OidcTokenResponseModel
 import com.rex.api.pub.skeleton.model.oauth2.TokenIntrospectionResponseModel
@@ -13,6 +13,7 @@ import com.rex.api.pub.skeleton.service.mapping.OAuth2AuthorizationMappingServic
 import com.rex.api.pub.skeleton.service.oauth2.OAuth2AuthorizationBizService
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -24,18 +25,17 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * OAuth2 인가 서버 엔드포인트. 판정(로그인 필요·동의 필요·코드 발급·오류)은 MappingService → BizService 가 내리고,
- * 이 컨트롤러는 리다이렉트 URL 조립과 응답 상태 매핑만 한다.
+ * 이 컨트롤러는 리다이렉트(`AuthorizeRedirectUrlBuilder`)와 응답 상태 매핑만 한다. 로그인·동의 화면은 `OAuth2BrowserController`.
  */
 @Tag(name = "OAuth2 Authorization Server", description = "OAuth2 인증 서버 API")
 @RestController
 @RequestMapping("/oauth2")
 class OAuth2AuthorizationController(
     private val oAuth2AuthorizationMappingService: OAuth2AuthorizationMappingService,
+    private val authorizationRequestStore: AuthorizationRequestStore,
 ) {
     // ===== Authorization Endpoint =====
 
@@ -51,6 +51,7 @@ class OAuth2AuthorizationController(
         @RequestParam("code_challenge_method", required = false) codeChallengeMethod: String?,
         @RequestParam("nonce", required = false) nonce: String?,
         @AuthenticationPrincipal user: AuthenticatedUser?,
+        httpRequest: HttpServletRequest,
         response: HttpServletResponse,
     ) {
         val request =
@@ -65,63 +66,13 @@ class OAuth2AuthorizationController(
                 nonce = nonce,
             )
         // RFC 6749 §4.1.2.1 — client·redirect_uri 가 잘못되면 리다이렉트하지 않는다. 그 실패는 예외로 올라와 @ExceptionHandler 가 JSON(401/400)으로 끝낸다
+        // user 는 브라우저 세션의 principal 이다 — 이 경로는 브라우저 체인이라 Bearer 를 읽지 않는다
         val decision = oAuth2AuthorizationMappingService.authorize(request, user?.userId)
-        redirectByDecision(decision, request, response)
-    }
-
-    @Operation(summary = "동의 정보 조회", description = "사용자 동의 화면에 표시할 정보")
-    @GetMapping("/consent")
-    fun getConsentInfo(
-        @RequestParam("client_id") clientId: String,
-        @RequestParam("redirect_uri") redirectUri: String,
-        @RequestParam("scope", required = false) scope: String?,
-        @RequestParam("state", required = false) state: String?,
-        @RequestParam("code_challenge", required = false) codeChallenge: String?,
-        @RequestParam("code_challenge_method", required = false) codeChallengeMethod: String?,
-        @RequestParam("nonce", required = false) nonce: String?,
-        @AuthenticationPrincipal user: AuthenticatedUser,
-    ): ResponseEntity<AuthorizationConsentModel> {
-        val request =
-            AuthorizationRequestDto(
-                responseType = "code",
-                clientId = clientId,
-                redirectUri = redirectUri,
-                scope = scope,
-                state = state,
-                codeChallenge = codeChallenge,
-                codeChallengeMethod = codeChallengeMethod,
-                nonce = nonce,
-            )
-        return ResponseEntity.ok(oAuth2AuthorizationMappingService.getConsentInfo(request))
-    }
-
-    @Operation(summary = "동의 처리", description = "사용자가 동의 버튼을 클릭했을 때")
-    @PostMapping("/consent")
-    fun handleConsent(
-        @RequestParam("client_id") clientId: String,
-        @RequestParam("redirect_uri") redirectUri: String,
-        @RequestParam("scope", required = false) scope: String?,
-        @RequestParam("state", required = false) state: String?,
-        @RequestParam("code_challenge", required = false) codeChallenge: String?,
-        @RequestParam("code_challenge_method", required = false) codeChallengeMethod: String?,
-        @RequestParam("nonce", required = false) nonce: String?,
-        @RequestParam("approve") approve: Boolean,
-        @AuthenticationPrincipal user: AuthenticatedUser,
-        response: HttpServletResponse,
-    ) {
-        val request =
-            AuthorizationRequestDto(
-                responseType = "code",
-                clientId = clientId,
-                redirectUri = redirectUri,
-                scope = scope,
-                state = state,
-                codeChallenge = codeChallenge,
-                codeChallengeMethod = codeChallengeMethod,
-                nonce = nonce,
-            )
-        val decision = oAuth2AuthorizationMappingService.consent(request, user.userId, approve)
-        redirectByDecision(decision, request, response)
+        if (decision.nextStep == AuthorizeNextStep.LOGIN_REQUIRED) {
+            // 돌아올 곳은 서버가 검증된 파라미터로 다시 조립해 세션에 둔다 — 쿼리로 받은 복귀 주소를 쓰지 않는다
+            authorizationRequestStore.save(httpRequest, AuthorizeRedirectUrlBuilder.authorizeUrl(request))
+        }
+        response.sendRedirect(AuthorizeRedirectUrlBuilder.byDecision(decision, request))
     }
 
     // ===== Token Endpoint =====
@@ -190,80 +141,4 @@ class OAuth2AuthorizationController(
             }
         return ResponseEntity.status(status).body(oAuth2AuthorizationMappingService.toErrorModel(e))
     }
-
-    // ===== Private =====
-
-    /** 판정 → 리다이렉트. redirect_uri 는 BizService 가 검증한 뒤라 신뢰한다(RFC 6749 §4.1.2.1). */
-    private fun redirectByDecision(decision: AuthorizeDecisionModel, request: AuthorizationRequestDto, response: HttpServletResponse) {
-        val url =
-            when (decision.nextStep) {
-                AuthorizeNextStep.LOGIN_REQUIRED -> buildLoginRedirectUrl(request)
-                AuthorizeNextStep.CONSENT_REQUIRED -> buildConsentRedirectUrl(request)
-                AuthorizeNextStep.CODE_ISSUED ->
-                    buildRedirectUrlWithCode(request.redirectUri, requireNotNull(decision.code) { "CODE_ISSUED 판정에는 code 가 있다" }, request.state)
-                AuthorizeNextStep.ERROR ->
-                    buildErrorRedirectUrl(
-                        request.redirectUri,
-                        requireNotNull(decision.error) { "ERROR 판정에는 error 가 있다" },
-                        decision.errorDescription,
-                        request.state,
-                    )
-            }
-        response.sendRedirect(url)
-    }
-
-    private fun buildLoginRedirectUrl(request: AuthorizationRequestDto): String {
-        val params = mutableListOf<String>()
-        params.add("redirect_to=/oauth2/authorize")
-        params.add("response_type=${encode(request.responseType)}")
-        params.add("client_id=${encode(request.clientId)}")
-        params.add("redirect_uri=${encode(request.redirectUri)}")
-        request.scope?.let { params.add("scope=${encode(it)}") }
-        request.state?.let { params.add("state=${encode(it)}") }
-        request.codeChallenge?.let { params.add("code_challenge=${encode(it)}") }
-        request.codeChallengeMethod?.let { params.add("code_challenge_method=${encode(it)}") }
-        request.nonce?.let { params.add("nonce=${encode(it)}") }
-
-        return "/auth/login?${params.joinToString("&")}"
-    }
-
-    private fun buildConsentRedirectUrl(request: AuthorizationRequestDto): String {
-        val params = mutableListOf<String>()
-        params.add("client_id=${encode(request.clientId)}")
-        params.add("redirect_uri=${encode(request.redirectUri)}")
-        request.scope?.let { params.add("scope=${encode(it)}") }
-        request.state?.let { params.add("state=${encode(it)}") }
-        request.codeChallenge?.let { params.add("code_challenge=${encode(it)}") }
-        request.codeChallengeMethod?.let { params.add("code_challenge_method=${encode(it)}") }
-        request.nonce?.let { params.add("nonce=${encode(it)}") }
-
-        return "/oauth2/consent?${params.joinToString("&")}"
-    }
-
-    /** 검증된 redirect_uri 만 받는다(RFC 6749 §4.1.2.1) — 호출자가 `validateClientAndRedirectUri` 를 지난 뒤여야 한다. */
-    private fun buildRedirectUrlWithCode(redirectUri: String, code: String, state: String?): String {
-        val params = mutableListOf("code=${encode(code)}")
-        state?.let { params.add("state=${encode(it)}") }
-
-        val separator = if (redirectUri.contains("?")) "&" else "?"
-        return "$redirectUri$separator${params.joinToString("&")}"
-    }
-
-    /** 검증된 redirect_uri 만 받는다(RFC 6749 §4.1.2.1). */
-    private fun buildErrorRedirectUrl(
-        redirectUri: String,
-        error: String,
-        errorDescription: String?,
-        state: String?,
-    ): String {
-        val params = mutableListOf("error=${encode(error)}")
-        errorDescription?.let { params.add("error_description=${encode(it)}") }
-        state?.let { params.add("state=${encode(it)}") }
-
-        val separator = if (redirectUri.contains("?")) "&" else "?"
-        return "$redirectUri$separator${params.joinToString("&")}"
-    }
-
-    private fun encode(value: String): String =
-        URLEncoder.encode(value, StandardCharsets.UTF_8)
 }

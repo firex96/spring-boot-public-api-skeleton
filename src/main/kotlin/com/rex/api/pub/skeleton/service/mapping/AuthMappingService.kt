@@ -6,6 +6,7 @@ import com.rex.api.pub.skeleton.dto.auth.SignupRequestDto
 import com.rex.api.pub.skeleton.mapper.AuthMapper
 import com.rex.api.pub.skeleton.model.auth.AccessTokenResponseModel
 import com.rex.api.pub.skeleton.model.auth.AuthUserInfoModel
+import com.rex.api.pub.skeleton.model.auth.BrowserPrincipalModel
 import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
 import com.rex.api.pub.skeleton.service.auth.AuthBizService
 import com.rex.api.pub.skeleton.service.auth.TokenHandoffBizService
@@ -25,6 +26,10 @@ class AuthMappingService(
 
     fun login(request: LoginRequestDto, ipAddress: String?): TokenResponseModel =
         mapper.toTokenResponseModel(authBizService.login(request, ipAddress))
+
+    /** 인가 서버 로그인 화면 — 토큰 대신 브라우저 세션에 로그인시킬 principal 을 돌려준다. */
+    fun loginForBrowser(request: LoginRequestDto, ipAddress: String?): BrowserPrincipalModel =
+        mapper.toBrowserPrincipalModel(authBizService.loginForBrowser(request, ipAddress))
 
     fun logout(sessionId: String) {
         authBizService.logout(sessionId)
