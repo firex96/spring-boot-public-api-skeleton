@@ -796,6 +796,20 @@ Authorization 요청 (Authorization Code Flow 시작) — **브라우저가 이�
 
 **Content-Type: application/x-www-form-urlencoded**
 
+#### 클라이언트 인증 (`/oauth2/token`·`/oauth2/introspect`·`/oauth2/revoke` 공통)
+
+시크릿은 **필수**다 — 모든 클라이언트는 시크릿을 갖고, 시크릿 없이 `client_id` 만으로는 인증되지 않는다. 두 방식 중 **하나만** 쓴다.
+
+| 방식 | 보내는 법 |
+|------|-----------|
+| `client_secret_basic` | `Authorization: Basic base64(urlencode(client_id) ":" urlencode(client_secret))` (RFC 6749 §2.3.1) |
+| `client_secret_post` | 폼 `client_id`·`client_secret` |
+
+| 실패 | 응답 |
+|------|------|
+| 시크릿 없음·불일치·깨진 Basic | `401` `invalid_client` + `WWW-Authenticate: Basic realm="oauth2"` |
+| Basic 과 폼 `client_secret` 동시 전송, 폼 `client_id` 가 Basic 과 다름 | `400` `invalid_request` |
+
 #### Authorization Code Grant
 
 | 파라미터 | 필수 | 설명 |
@@ -803,8 +817,8 @@ Authorization 요청 (Authorization Code Flow 시작) — **브라우저가 이�
 | grant_type | Y | `authorization_code` |
 | code | Y | Authorization Code |
 | redirect_uri | Y | 리다이렉트 URI |
-| client_id | Y | 클라이언트 ID |
-| client_secret | N | 클라이언트 시크릿 (Confidential Client) |
+| client_id | Y(post) | 클라이언트 ID (`client_secret_basic` 이면 헤더) |
+| client_secret | Y(post) | 클라이언트 시크릿 (`client_secret_basic` 이면 헤더) |
 | code_verifier | N | PKCE code verifier |
 
 #### Refresh Token Grant
@@ -813,8 +827,8 @@ Authorization 요청 (Authorization Code Flow 시작) — **브라우저가 이�
 |---------|------|------|
 | grant_type | Y | `refresh_token` |
 | refresh_token | Y | Refresh Token |
-| client_id | Y | 클라이언트 ID |
-| client_secret | N | 클라이언트 시크릿 |
+| client_id | Y(post) | 클라이언트 ID (`client_secret_basic` 이면 헤더) |
+| client_secret | Y(post) | 클라이언트 시크릿 (`client_secret_basic` 이면 헤더) |
 | scope | N | 요청 범위 (축소만 가능) |
 
 #### Client Credentials Grant

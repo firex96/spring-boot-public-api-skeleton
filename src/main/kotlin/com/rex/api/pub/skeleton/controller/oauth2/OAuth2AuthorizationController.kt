@@ -1,6 +1,7 @@
 package com.rex.api.pub.skeleton.controller.oauth2
 
 import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
+import com.rex.api.pub.skeleton.config.security.ClientCredentialsResolver
 import com.rex.api.pub.skeleton.config.security.browser.AuthorizationRequestStore
 import com.rex.api.pub.skeleton.controller.oauth2.support.AuthorizeRedirectUrlBuilder
 import com.rex.api.pub.skeleton.dto.oauth2.AuthorizationRequestDto
@@ -15,6 +16,7 @@ import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -36,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController
 class OAuth2AuthorizationController(
     private val oAuth2AuthorizationMappingService: OAuth2AuthorizationMappingService,
     private val authorizationRequestStore: AuthorizationRequestStore,
+    private val clientCredentialsResolver: ClientCredentialsResolver,
 ) {
     // ===== Authorization Endpoint =====
 
@@ -88,15 +91,16 @@ class OAuth2AuthorizationController(
         @RequestParam("refresh_token", required = false) refreshToken: String?,
         @RequestParam("scope", required = false) scope: String?,
         @RequestParam("code_verifier", required = false) codeVerifier: String?,
+        httpRequest: HttpServletRequest,
     ): ResponseEntity<OidcTokenResponseModel> {
-        val authenticatedClientId = oAuth2AuthorizationMappingService.authenticateClient(clientId, clientSecret)
+        val (authenticatedClientId, authenticatedSecret) = authenticateClient(httpRequest, clientId, clientSecret)
         val response =
             oAuth2AuthorizationMappingService.token(
                 grantType = grantType,
                 code = code,
                 redirectUri = redirectUri,
                 clientId = authenticatedClientId,
-                clientSecret = clientSecret,
+                clientSecret = authenticatedSecret,
                 refreshToken = refreshToken,
                 scope = scope,
                 codeVerifier = codeVerifier,
@@ -111,8 +115,9 @@ class OAuth2AuthorizationController(
         @RequestParam("token_type_hint", required = false) tokenTypeHint: String?,
         @RequestParam("client_id", required = false) clientId: String?,
         @RequestParam("client_secret", required = false) clientSecret: String?,
+        httpRequest: HttpServletRequest,
     ): ResponseEntity<TokenIntrospectionResponseModel> {
-        val authenticatedClientId = oAuth2AuthorizationMappingService.authenticateClient(clientId, clientSecret)
+        val authenticatedClientId = authenticateClient(httpRequest, clientId, clientSecret).first
         return ResponseEntity.ok(oAuth2AuthorizationMappingService.introspect(token, authenticatedClientId))
     }
 
@@ -123,8 +128,9 @@ class OAuth2AuthorizationController(
         @RequestParam("token_type_hint", required = false) tokenTypeHint: String?,
         @RequestParam("client_id", required = false) clientId: String?,
         @RequestParam("client_secret", required = false) clientSecret: String?,
+        httpRequest: HttpServletRequest,
     ): ResponseEntity<Void> {
-        val authenticatedClientId = oAuth2AuthorizationMappingService.authenticateClient(clientId, clientSecret)
+        val authenticatedClientId = authenticateClient(httpRequest, clientId, clientSecret).first
         oAuth2AuthorizationMappingService.revoke(token, authenticatedClientId)
         return ResponseEntity.ok().build()
     }
@@ -139,6 +145,17 @@ class OAuth2AuthorizationController(
                 OAuth2AuthorizationBizService.ERROR_ACCESS_DENIED -> HttpStatus.FORBIDDEN
                 else -> HttpStatus.BAD_REQUEST
             }
-        return ResponseEntity.status(status).body(oAuth2AuthorizationMappingService.toErrorModel(e))
+        val response = ResponseEntity.status(status)
+        // RFC 6749 §5.2 — invalid_client(401)는 클라이언트가 쓸 수 있는 인증 방식을 알린다
+        if (e.error == OAuth2AuthorizationBizService.ERROR_INVALID_CLIENT) {
+            response.header(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"oauth2\"")
+        }
+        return response.body(oAuth2AuthorizationMappingService.toErrorModel(e))
+    }
+
+    /** `client_secret_basic`·`client_secret_post` 에서 자격을 꺼내 인증한다 — (인증된 clientId, 사용한 secret). */
+    private fun authenticateClient(httpRequest: HttpServletRequest, formClientId: String?, formClientSecret: String?): Pair<String, String?> {
+        val credentials = clientCredentialsResolver.resolve(httpRequest, formClientId, formClientSecret)
+        return oAuth2AuthorizationMappingService.authenticateClient(credentials.clientId, credentials.clientSecret) to credentials.clientSecret
     }
 }

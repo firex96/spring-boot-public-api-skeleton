@@ -182,6 +182,59 @@ class OAuth2AuthorizationE2ETest(
         }
     }
 
+    describe("POST /oauth2/token - 클라이언트 인증 방식 (discovery 의 token_endpoint_auth_methods_supported)") {
+
+        fun tokenRequest(form: Map<String, String>, basic: Pair<String, String>? = null): HttpResponse<String> = newBrowser().postForm("/oauth2/token", form, basic)
+
+        context("client_secret_basic") {
+            it("Authorization: Basic 으로 client_credentials 를 발급받는다") {
+                val (clientId, clientSecret) = createOAuth2Client()
+
+                val response = tokenRequest(mapOf("grant_type" to "client_credentials"), basic = clientId to clientSecret)
+
+                response.statusCode() shouldBe 200
+                response.body() shouldContain "access_token"
+            }
+        }
+
+        context("client_secret_post") {
+            it("폼 client_id·client_secret 으로 발급받는다") {
+                val (clientId, clientSecret) = createOAuth2Client()
+
+                val response = tokenRequest(mapOf("grant_type" to "client_credentials", "client_id" to clientId, "client_secret" to clientSecret))
+
+                response.statusCode() shouldBe 200
+            }
+        }
+
+        context("시크릿 없이 client_id 만") {
+            it("401 invalid_client 와 WWW-Authenticate — 시크릿 없는 클라이언트 인증은 없다") {
+                val (clientId, _) = createOAuth2Client()
+
+                val response = tokenRequest(mapOf("grant_type" to "client_credentials", "client_id" to clientId))
+
+                response.statusCode() shouldBe 401
+                response.body() shouldContain "invalid_client"
+                response.headers().firstValue("WWW-Authenticate").orElse("") shouldContain "Basic"
+            }
+        }
+
+        context("두 방식을 함께") {
+            it("400 invalid_request") {
+                val (clientId, clientSecret) = createOAuth2Client()
+
+                val response =
+                    tokenRequest(
+                        mapOf("grant_type" to "client_credentials", "client_id" to clientId, "client_secret" to clientSecret),
+                        basic = clientId to clientSecret,
+                    )
+
+                response.statusCode() shouldBe 400
+                response.body() shouldContain "invalid_request"
+            }
+        }
+    }
+
     describe("POST /oauth2/introspect - 토큰 검증") {
 
         context("유효한 토큰 검증") {

@@ -1,6 +1,7 @@
 package com.rex.api.pub.skeleton.controller.oauth2
 
 import com.ninjasquad.springmockk.MockkBean
+import com.rex.api.pub.skeleton.config.security.ClientCredentialsResolver
 import com.rex.api.pub.skeleton.config.security.browser.AuthorizationRequestStore
 import com.rex.api.pub.skeleton.enums.oauth2.AuthorizeNextStep
 import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
@@ -42,7 +43,7 @@ import org.springframework.test.web.servlet.post
  */
 @WebMvcTest(controllers = [OAuth2AuthorizationController::class])
 @AutoConfigureMockMvc(addFilters = false)
-@Import(ControllerTestConfiguration::class, AuthorizationRequestStore::class)
+@Import(ControllerTestConfiguration::class, AuthorizationRequestStore::class, ClientCredentialsResolver::class)
 class OAuth2AuthorizationControllerTest(
     private val mockMvc: MockMvc,
 ) : BehaviorSpec() {
@@ -131,14 +132,14 @@ class OAuth2AuthorizationControllerTest(
         // ============================================
         Given("POST /oauth2/token - Authorization Code Grant") {
             When("유효한 authorization_code로 토큰 요청") {
-                every { oAuth2AuthorizationMappingService.authenticateClient("web-app", null) } returns "web-app"
+                every { oAuth2AuthorizationMappingService.authenticateClient("web-app", "client-secret") } returns "web-app"
                 every {
                     oAuth2AuthorizationMappingService.token(
                         grantType = "authorization_code",
                         code = "valid-auth-code",
                         redirectUri = "https://example.com/callback",
                         clientId = "web-app",
-                        clientSecret = null,
+                        clientSecret = "client-secret",
                         refreshToken = null,
                         scope = null,
                         codeVerifier = null,
@@ -160,6 +161,7 @@ class OAuth2AuthorizationControllerTest(
                         param("code", "valid-auth-code")
                         param("redirect_uri", "https://example.com/callback")
                         param("client_id", "web-app")
+                        param("client_secret", "client-secret")
                     }.andExpect {
                         status { isOk() }
                         jsonPath("$.access_token") { value("access-token-12345") }
@@ -172,14 +174,14 @@ class OAuth2AuthorizationControllerTest(
             }
 
             When("PKCE code_verifier와 함께 토큰 요청") {
-                every { oAuth2AuthorizationMappingService.authenticateClient("mobile-app", null) } returns "mobile-app"
+                every { oAuth2AuthorizationMappingService.authenticateClient("mobile-app", "mobile-secret") } returns "mobile-app"
                 every {
                     oAuth2AuthorizationMappingService.token(
                         grantType = "authorization_code",
                         code = "auth-code-pkce",
                         redirectUri = "myapp://callback",
                         clientId = "mobile-app",
-                        clientSecret = null,
+                        clientSecret = "mobile-secret",
                         refreshToken = null,
                         scope = null,
                         codeVerifier = "verifier-12345",
@@ -201,6 +203,7 @@ class OAuth2AuthorizationControllerTest(
                         param("code", "auth-code-pkce")
                         param("redirect_uri", "myapp://callback")
                         param("client_id", "mobile-app")
+                        param("client_secret", "mobile-secret")
                         param("code_verifier", "verifier-12345")
                     }.andExpect {
                         status { isOk() }
@@ -303,7 +306,7 @@ class OAuth2AuthorizationControllerTest(
         // ============================================
         Given("POST /oauth2/token - 에러 케이스") {
             When("지원하지 않는 grant_type 요청") {
-                every { oAuth2AuthorizationMappingService.authenticateClient("web-app", null) } returns "web-app"
+                every { oAuth2AuthorizationMappingService.authenticateClient("web-app", "client-secret") } returns "web-app"
                 every {
                     oAuth2AuthorizationMappingService.token(any(), any(), any(), any(), any(), any(), any(), any())
                 } throws OAuth2Exception("unsupported_grant_type", "지원하지 않는 grant_type입니다")
@@ -313,6 +316,7 @@ class OAuth2AuthorizationControllerTest(
                         contentType = MediaType.APPLICATION_FORM_URLENCODED
                         param("grant_type", "password")
                         param("client_id", "web-app")
+                        param("client_secret", "client-secret")
                     }.andExpect {
                         status { isBadRequest() }
                         jsonPath("$.error") { value("unsupported_grant_type") }
@@ -332,9 +336,28 @@ class OAuth2AuthorizationControllerTest(
                         param("client_secret", "wrong-secret")
                     }.andExpect {
                         status { isUnauthorized() }
+                        header { string("WWW-Authenticate", "Basic realm=\"oauth2\"") }
                         jsonPath("$.error") { value("invalid_client") }
                     }
                     verify(exactly = 0) { oAuth2AuthorizationMappingService.token(any(), any(), any(), any(), any(), any(), any(), any()) }
+                }
+            }
+
+            When("client_secret_basic(Authorization: Basic)로 인증하면") {
+                every { oAuth2AuthorizationMappingService.authenticateClient("machine-client", "s3:cr/t") } returns "machine-client"
+                every { oAuth2AuthorizationMappingService.token(any(), any(), any(), "machine-client", "s3:cr/t", any(), any(), any()) } returns
+                    OidcTokenResponseModel(accessToken = "basic-token", tokenType = "Bearer", expiresIn = 3600, refreshToken = null, scope = null, idToken = null)
+
+                Then("헤더의 id·secret(폼 URL 디코드)으로 인증한다") {
+                    val basic = java.util.Base64.getEncoder().encodeToString("machine-client:s3%3Acr%2Ft".toByteArray())
+                    mockMvc.post("/oauth2/token") {
+                        contentType = MediaType.APPLICATION_FORM_URLENCODED
+                        header("Authorization", "Basic $basic")
+                        param("grant_type", "client_credentials")
+                    }.andExpect {
+                        status { isOk() }
+                        jsonPath("$.access_token") { value("basic-token") }
+                    }
                 }
             }
         }

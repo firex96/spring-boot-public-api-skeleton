@@ -476,6 +476,11 @@ interface ExternalApi {
 - 비밀번호 재설정·이메일 인증 토큰은 `UserSelfBizService` 가 저장 뒤 **메일로만** 보낸다(서비스가 원본 토큰을 반환하지 않는다). `send` 가 던지면 같은 auth 트랜잭션이 롤백된다 — DB 에 남는 토큰은 전부 발송된 것(`MailSendFailureIntegrationTest`); 발송 뒤 커밋 실패는 메일의 토큰이 무효가 될 뿐(재요청)
 - 실제 발송(SMTP·SES)은 파생 프로젝트가 `MailSender` 구현 빈을 하나 더 두고 `@Primary` 로 올린다 — 계정·발신 도메인·정확히-한-번 배달(outbox)은 스켈레톤이 정하지 않는다
 
+### 9-2a. 인가 서버 클라이언트 인증
+- `/oauth2/token`·`introspect`·`revoke` 의 클라이언트 인증은 **시크릿 필수**다(`OAuth2AuthorizationBizService.authenticateClient`). 모든 클라이언트가 시크릿을 갖고 public 클라이언트 유형이 없으므로, 시크릿 없이 `client_id` 만 통과시키면 클라이언트 인증 우회다
+- 방식은 `client_secret_basic`(헤더)·`client_secret_post`(폼) 둘이고 한 요청에 하나만 — `ClientCredentialsResolver`(`config/security`)가 꺼낸다. `invalid_client` 는 401 + `WWW-Authenticate: Basic realm="oauth2"`
+- 검출: `ClientCredentialsResolverTest`(유닛) · `OAuth2AuthorizationControllerTest`(Basic·헤더) · `OAuth2AuthorizationE2ETest`「클라이언트 인증 방식」
+
 ### 9-3. 브라우저 세션 체인 (소셜 로그인·브라우저 흐름)
 - 필터 체인은 둘이다. **브라우저 체인**(`@Order(1)`, 경로 정본 `config/security/browser/BrowserSecurityPaths`)은 세션(`SKELETON_SESSION`, Spring Session Redis)·CSRF 를 쓰고 JWT 를 읽지 않는다. **API 체인**(`@Order(2)`)은 STATELESS·Bearer 그대로다. 브라우저 체인은 CORS 를 끈다(쿠키를 싣는 경로를 교차 출처에 열지 않는다)
 - `JwtAuthenticationFilter` 는 서블릿 자동 등록을 끈다(`jwtAuthenticationFilterRegistration`) — 켜 두면 브라우저 경로에서도 Bearer 가 SecurityContext 를 채운다

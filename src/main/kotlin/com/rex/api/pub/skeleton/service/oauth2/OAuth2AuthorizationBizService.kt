@@ -178,17 +178,16 @@ class OAuth2AuthorizationBizService(
     // ===== Token Endpoint =====
 
     /**
-     * 클라이언트 자격 인증 — `client_secret` 이 없으면 활성 public 클라이언트인지만, 있으면 시크릿 일치까지 본다. 성공하면 clientId.
+     * 클라이언트 자격 인증 — 시크릿이 **반드시** 있어야 한다. 모든 클라이언트는 시크릿을 갖고(`client_secret NOT NULL`)
+     * public 클라이언트 유형이 없으므로, 시크릿 없이 `client_id` 만으로 통과시키면 그것이 곧 클라이언트 인증 우회다.
+     * 성공하면 clientId.
      */
     fun authenticateClient(clientId: String?, clientSecret: String?): String {
         if (clientId.isNullOrBlank()) {
             throw OAuth2Exception(ERROR_INVALID_CLIENT, "client_id가 필요합니다")
         }
         if (clientSecret.isNullOrBlank()) {
-            if (oAuth2ClientBizService.getActiveClient(clientId) == null) {
-                throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
-            }
-            return clientId
+            throw OAuth2Exception(ERROR_INVALID_CLIENT, "클라이언트 인증이 필요합니다")
         }
         if (!oAuth2ClientBizService.validateClientCredentials(clientId, clientSecret)) {
             throw OAuth2Exception(ERROR_INVALID_CLIENT, "클라이언트 인증에 실패했습니다")
