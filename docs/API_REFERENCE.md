@@ -245,7 +245,9 @@ curl -X POST https://api.example.com/auth/logout \
 
 ### GET /auth/oauth2/{provider}/authorize
 
-소셜 로그인 URL 조회
+소셜 로그인 시작 — **브라우저가 이 경로로 직접 이동한다**(fetch 로 부르지 않는다).
+
+서버가 state(32바이트 난수)를 발급해 이 브라우저 세션(`SKELETON_SESSION` 쿠키)에 묶고, provider 인가 화면으로 302 한다. state 는 Redis `browser:social-state:{state}` 에 5분 동안 있고 콜백에서 한 번만 소비된다.
 
 #### Path Parameters
 
@@ -253,14 +255,9 @@ curl -X POST https://api.example.com/auth/logout \
 |---------|------|------|
 | provider | string | 소셜 제공자 (`GOOGLE`, `KAKAO`, `NAVER`) |
 
-#### Response `200 OK`
+#### Response `302 Found`
 
-```json
-{
-  "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth?...",
-  "state": "random-state-string"
-}
-```
+`Location: https://accounts.google.com/o/oauth2/v2/auth?...&state=...` · `Set-Cookie: SKELETON_SESSION=...; HttpOnly; SameSite=Lax`
 
 ---
 
@@ -275,7 +272,7 @@ OAuth Provider로부터의 콜백을 처리합니다. 성공 시 프론트엔드
 | 파라미터 | 타입 | 설명 |
 |---------|------|------|
 | code | string | Authorization Code |
-| state | string | CSRF 방지용 state |
+| state | string | `authorize` 가 이 브라우저 세션에 발급한 값. 세션·provider 가 다르거나, 만료되거나, 이미 쓰였으면 코드 교환 없이 `/demo/auth/callback?error=invalid_state` 로 302 한다 |
 
 #### Response `302 Redirect`
 

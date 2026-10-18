@@ -1,12 +1,14 @@
 package com.rex.api.pub.skeleton.config.security
 
 import com.rex.api.pub.skeleton.config.audit.AuditProperties
+import com.rex.api.pub.skeleton.config.security.browser.BrowserSecurityPaths
 import com.rex.api.pub.skeleton.enums.ErrorCode
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
+import org.springframework.core.annotation.Order
 import org.springframework.security.access.expression.method.DefaultMethodSecurityExpressionHandler
 import org.springframework.security.access.expression.method.MethodSecurityExpressionHandler
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
@@ -17,6 +19,9 @@ import org.springframework.security.web.AuthenticationEntryPoint
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.access.AccessDeniedHandler
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository
+import org.springframework.security.web.context.SecurityContextHolderFilter
+import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository
 import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.CorsConfigurationSource
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
@@ -48,13 +53,58 @@ class SecurityConfiguration(
         filter: SecurityAuditorContextFilter,
     ): FilterRegistrationBean<SecurityAuditorContextFilter> = FilterRegistrationBean(filter).apply { isEnabled = false }
 
+    /**
+     * `JwtAuthenticationFilter` 는 `@Component` 라 서블릿 필터로도 자동 등록된다 — 그러면 브라우저 체인 경로에서도
+     * Bearer 가 SecurityContext 를 채운다. 자동 등록을 꺼서 JWT 인증은 API 체인 안에서만 일어나게 한다.
+     */
+    @Bean
+    fun jwtAuthenticationFilterRegistration(
+        filter: JwtAuthenticationFilter,
+    ): FilterRegistrationBean<JwtAuthenticationFilter> = FilterRegistrationBean(filter).apply { isEnabled = false }
+
     @Bean
     fun methodSecurityExpressionHandler(): MethodSecurityExpressionHandler =
         DefaultMethodSecurityExpressionHandler().apply {
             setPermissionEvaluator(customPermissionEvaluator)
         }
 
+    /**
+     * 브라우저 체인 — 사용자 에이전트가 리다이렉트로 오가는 흐름(경로 정본: [BrowserSecurityPaths]).
+     *
+     * 세션(`SKELETON_SESSION`, Redis)과 CSRF 를 쓰고 JWT 는 읽지 않는다. 세션 속성은 SecurityContext·CSRF 토큰
+     * 둘뿐이다 — 요청 캐시를 끄는 이유다. 1회 소비 값(state)은 세션이 아니라 Redis `GETDEL` 로 다룬다.
+     * CORS 는 끈다: 쿠키를 싣는 경로를 교차 출처에 열지 않는다.
+     */
     @Bean
+    @Order(1)
+    fun browserSecurityFilterChain(http: HttpSecurity): SecurityFilterChain =
+        http
+            .securityMatcher(*BrowserSecurityPaths.PATHS)
+            .cors { it.disable() }
+            .csrf { it.csrfTokenRepository(HttpSessionCsrfTokenRepository()) }
+            .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED) }
+            .securityContext { it.securityContextRepository(HttpSessionSecurityContextRepository()) }
+            .requestCache { it.disable() }
+            .authorizeHttpRequests { auth ->
+                auth
+                    .requestMatchers(
+                        BrowserSecurityPaths.SOCIAL_AUTHORIZE,
+                        BrowserSecurityPaths.SOCIAL_CALLBACK,
+                        BrowserSecurityPaths.DEMO_CALLBACK,
+                    ).permitAll()
+                    .requestMatchers(BrowserSecurityPaths.SESSION_API).authenticated()
+                    .anyRequest().denyAll()
+            }
+            .exceptionHandling { ex ->
+                ex
+                    .authenticationEntryPoint(customAuthenticationEntryPoint())
+                    .accessDeniedHandler(customAccessDeniedHandler())
+            }
+            .addFilterAfter(securityAuditorContextFilter(), SecurityContextHolderFilter::class.java)
+            .build()
+
+    @Bean
+    @Order(2)
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain =
         http
             .csrf { it.disable() }
@@ -64,8 +114,8 @@ class SecurityConfiguration(
                 auth
                     // 공개 API
                     .requestMatchers("/auth/login", "/auth/signup", "/auth/refresh").permitAll()
-                    // 소셜 로그인 - 공개 (인증 URL, 로그인, 콜백)
-                    .requestMatchers("/auth/oauth2/*/authorize", "/auth/oauth2/*/login", "/auth/oauth2/*/callback").permitAll()
+                    // 소셜 로그인 코드 교환 - 공개 (인가 시작·콜백은 브라우저 체인)
+                    .requestMatchers("/auth/oauth2/*/login").permitAll()
                     // 소셜 계정 연동/해제/조회 - 인증 필요
                     .requestMatchers("/auth/oauth2/*/link", "/auth/oauth2/*/unlink", "/auth/oauth2/accounts").authenticated()
                     // 비밀번호 재설정 (비인증 접근)

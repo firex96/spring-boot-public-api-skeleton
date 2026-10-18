@@ -65,8 +65,6 @@
 <script>
     document.addEventListener('DOMContentLoaded', async function() {
         const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        const state = urlParams.get('state');
         const error = urlParams.get('error');
         const errorDescription = urlParams.get('error_description');
 
@@ -91,38 +89,6 @@
             showSection('success');
             document.getElementById('accessTokenDisplay').textContent = accessToken;
             document.getElementById('refreshTokenDisplay').textContent = refreshToken || '없음';
-            return;
-        }
-
-        if (code) {
-            // Authorization Code Flow - 백엔드에서 토큰 교환
-            try {
-                // provider는 state에서 추출하거나 별도로 저장된 값 사용
-                const storedProvider = localStorage.getItem('oauth2_provider') || 'google';
-
-                const response = await apiCall(`/auth/oauth2/${storedProvider}/callback`, 'POST', {
-                    code: code,
-                    state: state
-                });
-
-                showResult(response);
-
-                if (response.ok && response.data) {
-                    saveTokens(response.data.accessToken, response.data.refreshToken);
-                    showSection('success');
-                    document.getElementById('accessTokenDisplay').textContent =
-                        response.data.accessToken || '발급됨';
-                    document.getElementById('refreshTokenDisplay').textContent =
-                        response.data.refreshToken || '없음';
-                } else {
-                    showSection('error');
-                    document.getElementById('errorDescription').textContent =
-                        response.data?.message || '토큰 교환에 실패했습니다.';
-                }
-            } catch (err) {
-                showSection('error');
-                document.getElementById('errorDescription').textContent = err.message;
-            }
             return;
         }
 

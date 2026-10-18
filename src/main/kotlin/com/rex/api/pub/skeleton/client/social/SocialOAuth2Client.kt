@@ -9,7 +9,8 @@ interface SocialOAuth2Client {
 
     fun getAuthorizationUrl(state: String): String
 
-    fun getAccessToken(code: String): OAuth2TokenResponse
+    /** [state] 는 서버 콜백 경로에서 받은 값이다 — 토큰 교환에 state 를 요구하는 provider(Naver)만 쓴다. 네이티브 코드 교환 경로는 null. */
+    fun getAccessToken(code: String, state: String?): OAuth2TokenResponse
 
     fun getUserInfo(accessToken: String): SocialUserInfo
 }

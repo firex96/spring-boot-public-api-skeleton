@@ -2,6 +2,7 @@ package com.rex.api.pub.skeleton.auth
 
 import com.rex.api.pub.skeleton.config.E2ETestConfiguration
 import com.rex.api.pub.skeleton.dto.auth.SocialLoginRequestDto
+import com.rex.api.pub.skeleton.support.BrowserSession
 import com.rex.api.pub.skeleton.support.E2eResourceJanitor
 import com.rex.api.pub.skeleton.support.E2eResources
 import com.rex.api.pub.skeleton.support.createAndLoginUser
@@ -19,17 +20,13 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
-import org.springframework.http.client.SimpleClientHttpRequestFactory
-import org.springframework.web.client.RestTemplate
-import java.net.HttpURLConnection
-import java.net.URI
 import java.util.UUID
 
 /**
  * Social Auth API E2E 테스트.
  *
  * 소셜 로그인 API를 실제 HTTP 요청으로 테스트합니다.
- * - 소셜 로그인 URL 조회
+ * - 소셜 로그인 시작(세션에 묶인 state 발급 → provider 로 302)·콜백 state 검증
  * - 소셜 로그인 (코드 교환)
  * - 소셜 계정 연동/해제
  * - 연동된 소셜 계정 목록 조회
@@ -64,36 +61,26 @@ class SocialAuthE2ETest(
     // 지원되는 소셜 프로바이더
     val providers = listOf("google", "kakao", "naver")
 
-    // 리다이렉트를 따르지 않는 클라이언트 — 콜백의 302 와 Location 을 단언하기 위해
-    val noRedirectClient =
-        RestTemplate(
-            object : SimpleClientHttpRequestFactory() {
-                override fun prepareConnection(connection: HttpURLConnection, httpMethod: String) {
-                    super.prepareConnection(connection, httpMethod)
-                    connection.instanceFollowRedirects = false
-                }
-            },
-        )
+    // 브라우저 흐름(authorize → callback)은 같은 세션 쿠키여야 한다 — 브라우저 하나 = BrowserSession 하나
+    fun newBrowser() = BrowserSession(restTemplate.rootUri.orEmpty())
 
-    describe("GET /auth/oauth2/{provider}/authorize - 소셜 로그인 URL 조회") {
+    /** authorize 로 세션과 state 를 만든다 — (그 세션의 브라우저, state). */
+    fun startAuthorization(provider: String): Pair<BrowserSession, String> {
+        val browser = newBrowser()
+        val response = browser.get("/auth/oauth2/$provider/authorize")
+        response.statusCode() shouldBe HttpStatus.FOUND.value()
+        return browser to browser.location(response).substringAfter("state=").substringBefore("&")
+    }
+
+    describe("GET /auth/oauth2/{provider}/authorize - 소셜 로그인 시작") {
 
         providers.forEach { provider ->
-            context("$provider 인증 URL 조회") {
-                it("authorizationUrl과 state를 반환한다") {
-                    // when
-                    val response = restTemplate.getForEntity(
-                        "/auth/oauth2/$provider/authorize",
-                        Map::class.java,
-                    )
+            context("$provider 로그인 시작") {
+                it("세션 쿠키를 만들고 state 를 실은 provider 인가 URL 로 302 한다") {
+                    val (browser, state) = startAuthorization(provider)
 
-                    // then
-                    // 설정이 되어있으면 200 OK, 안되어있으면 500 또는 다른 에러
-                    if (response.statusCode == HttpStatus.OK) {
-                        response.body.shouldNotBeNull()
-                        response.body!!["authorizationUrl"].shouldNotBeNull()
-                        response.body!!["state"].shouldNotBeNull()
-                    }
-                    // 설정이 안 된 경우도 테스트 통과 (graceful handling)
+                    browser.cookie.shouldNotBeNull() shouldContain "SKELETON_SESSION="
+                    state.length shouldBe 43
                 }
             }
         }
@@ -164,37 +151,38 @@ class SocialAuthE2ETest(
     describe("GET /auth/oauth2/{provider}/callback - 소셜 로그인 콜백") {
 
         providers.forEach { provider ->
-            context("$provider 콜백 에러 파라미터로 요청") {
-                it("에러 페이지로 리다이렉트한다") {
+            context("$provider 이 세션이 시작한 인가의 provider 오류") {
+                it("provider 오류를 데모 콜백으로 302 한다(값 하나에 인코딩 한 번)") {
                     // given
-                    val url = "/auth/oauth2/$provider/callback?" +
-                        "error=access_denied&" +
-                        "error_description=User%20denied%20access"
+                    val (browser, state) = startAuthorization(provider)
 
-                    // when — 리다이렉트를 따르지 않는 클라이언트로 302 와 Location 자체를 본다.
-                    // URI 로 넘긴다 — String 템플릿으로 넘기면 RestTemplate 이 %20 을 다시 인코딩해(%2520) 서버가 리터럴 %20 을 받는다
-                    val response = noRedirectClient.exchange(URI.create(restTemplate.rootUri + url), HttpMethod.GET, null, String::class.java)
+                    // when
+                    val response = browser.get("/auth/oauth2/$provider/callback?state=$state&error=access_denied&error_description=User%20denied%20access")
 
-                    // then — 데모 콜백으로 302, 값은 하나에 인코딩 한 번(공백 → +)
-                    response.statusCode shouldBe HttpStatus.FOUND
-                    response.headers.location.shouldNotBeNull().toString() shouldContain
+                    // then
+                    response.statusCode() shouldBe HttpStatus.FOUND.value()
+                    response.headers().firstValue("Location").orElse("") shouldContain
                         "/demo/auth/callback?error=access_denied&error_description=User+denied+access"
                 }
             }
 
-            context("$provider 잘못된 code로 콜백") {
-                it("에러 처리 후 리다이렉트한다") {
-                    // given
-                    val url = "/auth/oauth2/$provider/callback?" +
-                        "code=invalid-code&" +
-                        "state=test-state"
+            context("$provider 세션·state 없이 온 provider 오류") {
+                it("invalid_state 로 302 한다 — 이 브라우저가 시작한 인가가 아니다") {
+                    val response = newBrowser().get("/auth/oauth2/$provider/callback?error=access_denied")
 
-                    // when
-                    val response = restTemplate.getForEntity(url, String::class.java)
+                    response.statusCode() shouldBe HttpStatus.FOUND.value()
+                    response.headers().firstValue("Location").orElse("") shouldContain "/demo/auth/callback?error=invalid_state"
+                }
+            }
 
-                    // then
-                    // 에러 응답 또는 리다이렉트
-                    response.statusCode.shouldNotBeNull()
+            context("$provider 임의 state 로 콜백") {
+                it("코드 교환 없이 invalid_state 로 302 한다") {
+                    val (browser, _) = startAuthorization(provider)
+
+                    val response = browser.get("/auth/oauth2/$provider/callback?code=invalid-code&state=test-state")
+
+                    response.statusCode() shouldBe HttpStatus.FOUND.value()
+                    response.headers().firstValue("Location").orElse("") shouldContain "/demo/auth/callback?error=invalid_state"
                 }
             }
         }
@@ -325,50 +313,17 @@ class SocialAuthE2ETest(
 
     describe("소셜 로그인 URL 형식 검증") {
 
-        context("Google 인증 URL") {
-            it("Google OAuth 엔드포인트를 포함한다") {
-                // when
-                val response = restTemplate.getForEntity(
-                    "/auth/oauth2/google/authorize",
-                    Map::class.java,
-                )
+        mapOf("google" to "accounts.google.com", "kakao" to "kauth.kakao.com", "naver" to "nid.naver.com").forEach { (provider, host) ->
+            context("$provider 인증 URL") {
+                it("302 Location 이 $host 인가 엔드포인트이고 state 를 URL 인코딩해 싣는다") {
+                    // when
+                    val response = newBrowser().get("/auth/oauth2/$provider/authorize")
 
-                // then
-                if (response.statusCode == HttpStatus.OK) {
-                    val authUrl = response.body!!["authorizationUrl"] as String
-                    authUrl shouldContain "accounts.google.com"
-                }
-            }
-        }
-
-        context("Kakao 인증 URL") {
-            it("Kakao OAuth 엔드포인트를 포함한다") {
-                // when
-                val response = restTemplate.getForEntity(
-                    "/auth/oauth2/kakao/authorize",
-                    Map::class.java,
-                )
-
-                // then
-                if (response.statusCode == HttpStatus.OK) {
-                    val authUrl = response.body!!["authorizationUrl"] as String
-                    authUrl shouldContain "kauth.kakao.com"
-                }
-            }
-        }
-
-        context("Naver 인증 URL") {
-            it("Naver OAuth 엔드포인트를 포함한다") {
-                // when
-                val response = restTemplate.getForEntity(
-                    "/auth/oauth2/naver/authorize",
-                    Map::class.java,
-                )
-
-                // then
-                if (response.statusCode == HttpStatus.OK) {
-                    val authUrl = response.body!!["authorizationUrl"] as String
-                    authUrl shouldContain "nid.naver.com"
+                    // then
+                    response.statusCode() shouldBe HttpStatus.FOUND.value()
+                    val location = response.headers().firstValue("Location").orElse("")
+                    location shouldContain host
+                    location shouldContain "state="
                 }
             }
         }

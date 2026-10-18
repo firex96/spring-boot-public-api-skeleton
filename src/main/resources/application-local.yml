@@ -16,6 +16,7 @@ core-api-url: ${CORE_API_URL:http://localhost:9999}
 jwt-secret: local-only-jwt-signing-secret-change-me-0123456789 # 로컬 전용(32자 이상). 운영 값은 비밀 저장소에
 oidc-issuer: http://localhost:8080
 oauth2-redirect-base-url: http://localhost:8080
+browser-session-cookie-secure: false # 로컬은 http — Secure 쿠키는 다음 요청에 실리지 않는다
 
 spring:
   datasource:

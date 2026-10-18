@@ -41,16 +41,16 @@ class KakaoOAuth2Client(
         return buildString {
             append(AUTHORIZATION_URL)
             append("?response_type=code")
-            append("&client_id=${config.clientId}")
+            append("&client_id=${URLEncoder.encode(config.clientId, StandardCharsets.UTF_8)}")
             append("&redirect_uri=${URLEncoder.encode(redirectUri, StandardCharsets.UTF_8)}")
-            append("&state=$state")
+            append("&state=${URLEncoder.encode(state, StandardCharsets.UTF_8)}")
             if (scope.isNotEmpty()) {
-                append("&scope=$scope")
+                append("&scope=${URLEncoder.encode(scope, StandardCharsets.UTF_8)}")
             }
         }
     }
 
-    override fun getAccessToken(code: String): OAuth2TokenResponse {
+    override fun getAccessToken(code: String, state: String?): OAuth2TokenResponse {
         val redirectUri = "${oAuth2Properties.redirectBaseUrl}/auth/oauth2/kakao/callback"
 
         val formData =

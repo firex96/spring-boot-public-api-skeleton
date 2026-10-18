@@ -45,7 +45,7 @@ class SocialAuthBizService(
             ?: throw AuthenticationException("지원하지 않는 소셜 로그인입니다: $provider")
 
     /**
-     * 소셜 로그인 인증 URL 조회.
+     * 소셜 로그인 인증 URL 조회 — [state] 는 `SocialAuthorizationStateBizService.issue` 가 발급한 값이다.
      */
     fun getAuthorizationUrl(
         provider: SocialProvider,
@@ -59,6 +59,7 @@ class SocialAuthBizService(
     fun socialLogin(
         provider: SocialProvider,
         code: String,
+        state: String?,
         deviceType: String?,
         deviceInfo: String?,
         ipAddress: String?,
@@ -66,7 +67,7 @@ class SocialAuthBizService(
         val oauth2Client = getOAuth2Client(provider)
 
         val tokenResponse = try {
-            oauth2Client.getAccessToken(code)
+            oauth2Client.getAccessToken(code, state)
         } catch (e: Exception) {
             log.error("소셜 토큰 획득 실패: provider=$provider, error=${e.message}")
             auditBizService.logSocialLoginFailure(
@@ -157,7 +158,7 @@ class SocialAuthBizService(
         val oauth2Client = getOAuth2Client(provider)
         val user = userEntityService.getUserById(userId) ?: throw AuthenticationException("사용자를 찾을 수 없습니다")
 
-        val tokenResponse = oauth2Client.getAccessToken(code)
+        val tokenResponse = oauth2Client.getAccessToken(code, null)
         val socialUserInfo = oauth2Client.getUserInfo(tokenResponse.accessToken)
 
         val existingAccount = userSocialAccountEntityService.getByProviderAndProviderId(provider.name, socialUserInfo.providerId)

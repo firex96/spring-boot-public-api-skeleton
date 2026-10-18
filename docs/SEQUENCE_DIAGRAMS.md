@@ -348,32 +348,27 @@ sequenceDiagram
 
 ### 2.1 소셜 로그인 시작
 
+브라우저가 이 경로로 직접 이동한다. 브라우저 체인(세션·CSRF)을 탄다.
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Client
+    participant Browser
     participant SocialAuthController
     participant SocialAuthMappingService
+    participant SocialAuthorizationStateBizService
     participant SocialAuthBizService
-    participant StateStore
     participant Redis
 
-    Client->>SocialAuthController: GET /auth/oauth2/kakao?redirect_uri=...
-    SocialAuthController->>SocialAuthMappingService: initiateOAuth2(provider, redirectUri)
-    SocialAuthMappingService->>SocialAuthBizService: createAuthorizationUrl(provider, redirectUri)
-
-    Note over SocialAuthBizService: State 생성 (CSRF 방지)
-    SocialAuthBizService->>SocialAuthBizService: generateState()
-    SocialAuthBizService->>StateStore: save(state, redirectUri)
-    StateStore->>Redis: SET oauth2:state:{state}<br/>TTL: 5분
-    Redis-->>StateStore: OK
-
-    Note over SocialAuthBizService: Provider별 인가 URL 생성
-    SocialAuthBizService->>SocialAuthBizService: buildAuthorizationUrl(<br/>clientId, redirectUri, scope, state)
-
-    SocialAuthBizService-->>SocialAuthMappingService: AuthorizationUrlDto
-    SocialAuthMappingService-->>SocialAuthController: AuthorizationUrlModel
-    SocialAuthController-->>Client: 302 Redirect<br/>Location: https://kauth.kakao.com/oauth/authorize?...
+    Browser->>SocialAuthController: GET /auth/oauth2/kakao/authorize
+    Note over SocialAuthController: 브라우저 세션 생성/이어 쓰기 (SKELETON_SESSION)
+    SocialAuthController->>SocialAuthMappingService: issueAuthorizationRedirect(provider, browserSessionId)
+    SocialAuthMappingService->>SocialAuthorizationStateBizService: issue(browserSessionId, provider)
+    Note over SocialAuthorizationStateBizService: state = SecureRandom 32바이트 base64url
+    SocialAuthorizationStateBizService->>Redis: SET browser:social-state:{state}<br/>{browserSessionId, provider} TTL 5분
+    SocialAuthMappingService->>SocialAuthBizService: getAuthorizationUrl(provider, state)
+    SocialAuthBizService-->>SocialAuthMappingService: provider 인가 URL (state 포함)
+    SocialAuthController-->>Browser: 302 Redirect<br/>Location: https://kauth.kakao.com/oauth/authorize?...&state=...<br/>Set-Cookie: SKELETON_SESSION
 ```
 
 ### 2.2 소셜 로그인 콜백
@@ -382,75 +377,44 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     participant Provider as OAuth2 Provider<br/>(Kakao/Naver/Google)
-    participant Client
+    participant Browser
     participant SocialAuthController
     participant SocialAuthMappingService
+    participant SocialAuthorizationStateBizService
     participant SocialAuthBizService
-    participant OAuth2ClientBizService
     participant UserSocialAccountEntityService
-    participant UserEntityService
     participant AuthBizService
     participant AuditBizService
     participant Redis
-    participant DB
 
-    Provider->>Client: Redirect to callback<br/>?code=xxx&state=yyy
-    Client->>SocialAuthController: GET /auth/oauth2/kakao/callback<br/>?code=xxx&state=yyy
+    Provider->>Browser: Redirect to callback<br/>?code=xxx&state=yyy
+    Browser->>SocialAuthController: GET /auth/oauth2/kakao/callback<br/>?code=xxx&state=yyy (쿠키 SKELETON_SESSION)
 
-    SocialAuthController->>SocialAuthMappingService: handleCallback(provider, code, state)
-    SocialAuthMappingService->>SocialAuthBizService: processCallback(provider, code, state)
+    Note over SocialAuthController: state 를 무엇보다 먼저 소비한다
+    SocialAuthController->>SocialAuthMappingService: consumeState(provider, browserSessionId, state)
+    SocialAuthMappingService->>SocialAuthorizationStateBizService: consume(...)
+    SocialAuthorizationStateBizService->>Redis: GETDEL browser:social-state:{state}
+    Redis-->>SocialAuthorizationStateBizService: {browserSessionId, provider} 또는 null
 
-    Note over SocialAuthBizService: State 검증
-    SocialAuthBizService->>Redis: GET oauth2:state:{state}
-    Redis-->>SocialAuthBizService: originalRedirectUri
-    SocialAuthBizService->>Redis: DEL oauth2:state:{state}
-
-    Note over SocialAuthBizService: Authorization Code → Token 교환
-    SocialAuthBizService->>OAuth2ClientBizService: exchangeCodeForToken(code)
-    OAuth2ClientBizService->>Provider: POST /oauth/token<br/>{code, client_id, client_secret}
-    Provider-->>OAuth2ClientBizService: {access_token, refresh_token}
-    OAuth2ClientBizService-->>SocialAuthBizService: OAuth2TokenDto
-
-    Note over SocialAuthBizService: Provider API로 사용자 정보 조회
-    SocialAuthBizService->>OAuth2ClientBizService: getUserInfo(accessToken)
-    OAuth2ClientBizService->>Provider: GET /v2/user/me<br/>Authorization: Bearer {token}
-    Provider-->>OAuth2ClientBizService: {id, email, nickname, ...}
-    OAuth2ClientBizService-->>SocialAuthBizService: OAuth2UserInfoDto
-
-    Note over SocialAuthBizService: 소셜 계정 조회/생성
-    SocialAuthBizService->>UserSocialAccountEntityService: findByProviderAndProviderId(provider, providerId)
-    UserSocialAccountEntityService->>DB: SELECT * FROM user_social_accounts
-
-    alt 기존 연동 계정 존재
-        DB-->>UserSocialAccountEntityService: SocialAccountEntity
-        UserSocialAccountEntityService-->>SocialAuthBizService: SocialAccountDto
-        SocialAuthBizService->>UserSocialAccountEntityService: updateToken(accessToken)
-    else 신규 사용자
-        DB-->>UserSocialAccountEntityService: null
-
-        Note over SocialAuthBizService: 사용자 생성
-        SocialAuthBizService->>UserEntityService: create(UserDto)
-        UserEntityService->>DB: INSERT INTO users
-        DB-->>UserEntityService: UserEntity
-        UserEntityService-->>SocialAuthBizService: UserDto
-
-        Note over SocialAuthBizService: 소셜 계정 연동
-        SocialAuthBizService->>UserSocialAccountEntityService: create(SocialAccountDto)
-        UserSocialAccountEntityService->>DB: INSERT INTO user_social_accounts
-        DB-->>UserSocialAccountEntityService: SocialAccountEntity
+    alt 값 없음 · 세션 불일치 · provider 불일치
+        SocialAuthController-->>Browser: 302 /demo/auth/callback?error=invalid_state
+    else 일치
+        SocialAuthController->>SocialAuthMappingService: socialLogin(provider, code, state, ...)
+        SocialAuthMappingService->>SocialAuthBizService: socialLogin(...)
+        SocialAuthBizService->>Provider: POST token (code — Naver 는 state 포함)
+        Provider-->>SocialAuthBizService: {access_token}
+        SocialAuthBizService->>Provider: GET user info
+        Provider-->>SocialAuthBizService: {id, email, ...}
+        SocialAuthBizService->>UserSocialAccountEntityService: getByProviderAndProviderId(provider, providerId)
+        alt 연동된 계정 없음
+            SocialAuthBizService->>AuditBizService: logSocialLoginFailure(...)
+            SocialAuthBizService-->>SocialAuthController: AuthenticationException (401)
+        else 연동된 계정
+            SocialAuthBizService->>AuthBizService: createSession(user, ...)
+            AuthBizService-->>SocialAuthBizService: TokenResponseDto
+            SocialAuthController-->>Browser: 302 Redirect<br/>?access_token=xxx&refresh_token=yyy
+        end
     end
-
-    Note over SocialAuthBizService: JWT 토큰 발급
-    SocialAuthBizService->>AuthBizService: createSession(userId, ipAddress)
-    AuthBizService-->>SocialAuthBizService: TokenDto
-
-    Note over SocialAuthBizService: 감사 로그
-    SocialAuthBizService->>AuditBizService: log(SOCIAL_LOGIN, provider)
-
-    SocialAuthBizService-->>SocialAuthMappingService: OAuth2LoginResultDto
-    SocialAuthMappingService->>SocialAuthMappingService: mapper.toModel(dto)
-    SocialAuthMappingService-->>SocialAuthController: OAuth2LoginResultModel
-    SocialAuthController-->>Client: 302 Redirect<br/>?access_token=xxx&refresh_token=yyy
 ```
 
 ### 2.3 소셜 계정 연동
@@ -1312,7 +1276,8 @@ sequenceDiagram
 | 권한 | `user:permissions:{userId}` | 5분 | 그룹 변경, 그룹 권한 변경 |
 | 로그인 시도 | `login:attempts:{loginId}` | 15분 | 로그인 성공 |
 | 계정 잠금 | `login:locked:{loginId}` | 30분 | 관리자 해제, 자동 만료 |
-| OAuth State | `oauth2:state:{state}` | 5분 | 콜백 처리 완료 |
+| 소셜 state | `browser:social-state:{state}` | 5분 | 콜백이 `GETDEL` 로 소비 |
+| 브라우저 세션 | `skeleton:public-api:session:sessions:{id}` | 30분(비활동) | 만료 |
 
 ### 이벤트별 캐시 무효화
 

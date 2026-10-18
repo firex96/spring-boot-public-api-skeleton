@@ -8,12 +8,10 @@ import com.rex.api.pub.skeleton.support.fillInput
 import com.rex.api.pub.skeleton.support.getQueryParams
 import com.rex.api.pub.skeleton.support.navigateAndWait
 import com.rex.api.pub.skeleton.support.saveScreenshot
-import com.rex.api.pub.skeleton.support.unescapeJson
 import com.rex.api.pub.skeleton.support.waitForUrlPattern
 import com.rex.api.pub.skeleton.support.withPage
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.DescribeSpec
-import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import org.springframework.boot.test.context.SpringBootTest
@@ -77,17 +75,8 @@ class SocialLoginBrowserE2ETest(
             enabled = kakao.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. API에서 인증 URL 가져오기
+                // 로그인 시작 — 서버가 state 를 이 브라우저 세션에 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/kakao/authorize")
-                val responseText = page.content()
-
-                // JSON 응답에서 authorizationUrl 추출
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 카카오 로그인 페이지로 이동
-                page.navigateAndWait(authUrl)
                 page.url() shouldContain "kauth.kakao.com"
 
                 // 스크린샷 저장 (디버깅용)
@@ -99,15 +88,8 @@ class SocialLoginBrowserE2ETest(
             enabled = kakao.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. 인증 URL 가져오기
+                // 1~2. 로그인 시작 — 서버가 이 브라우저 세션에 state 를 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/kakao/authorize")
-                val responseText = page.content()
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 카카오 로그인
-                page.navigateAndWait(authUrl)
                 performKakaoLogin(page, kakao.email!!, kakao.password!!)
 
                 // 디버깅: 로그인 후 상태 스크린샷
@@ -143,16 +125,8 @@ class SocialLoginBrowserE2ETest(
             enabled = naver.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. API에서 인증 URL 가져오기
+                // 로그인 시작 — 서버가 state 를 이 브라우저 세션에 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/naver/authorize")
-                val responseText = page.content()
-
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 네이버 로그인 페이지로 이동
-                page.navigateAndWait(authUrl)
                 page.url() shouldContain "nid.naver.com"
 
                 page.saveScreenshot("naver-login-page.png")
@@ -163,15 +137,8 @@ class SocialLoginBrowserE2ETest(
             enabled = naver.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. 인증 URL 가져오기
+                // 1~2. 로그인 시작 — 서버가 이 브라우저 세션에 state 를 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/naver/authorize")
-                val responseText = page.content()
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 네이버 로그인
-                page.navigateAndWait(authUrl)
                 performNaverLogin(page, naver.id!!, naver.password!!)
 
                 // 3. 콜백 또는 데모 콜백 페이지 대기
@@ -180,6 +147,7 @@ class SocialLoginBrowserE2ETest(
                 // 4. 결과 확인 - 데모 콜백 페이지로 리다이렉트되었는지 확인
                 val currentUrl = page.url()
                 val params = page.getQueryParams()
+                // 로그인 성공 시 토큰을 받거나 데모 콜백 페이지로 리다이렉트
                 (params.containsKey("access_token") || currentUrl.contains("/demo/auth/callback")) shouldBe true
 
                 page.saveScreenshot("naver-login-result.png")
@@ -193,22 +161,8 @@ class SocialLoginBrowserE2ETest(
             enabled = google.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. API에서 인증 URL 가져오기
+                // 로그인 시작 — 서버가 state 를 이 브라우저 세션에 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/google/authorize")
-                val responseText = page.content()
-
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 디버깅: 추출된 URL 출력
-                println("=== Google Auth URL ===")
-                println("Raw match: ${authUrlMatch.groupValues[1]}")
-                println("Unescaped: $authUrl")
-                println("========================")
-
-                // 2. 구글 로그인 페이지로 이동
-                page.navigateAndWait(authUrl)
                 page.url() shouldContain "accounts.google.com"
 
                 page.saveScreenshot("google-login-page.png")
@@ -219,15 +173,8 @@ class SocialLoginBrowserE2ETest(
             enabled = google.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. 인증 URL 가져오기
+                // 1~2. 로그인 시작 — 서버가 이 브라우저 세션에 state 를 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/google/authorize")
-                val responseText = page.content()
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 구글 로그인
-                page.navigateAndWait(authUrl)
                 performGoogleLogin(page, google.email!!, google.password!!)
 
                 // 3. 콜백 또는 데모 콜백 페이지 대기
@@ -236,6 +183,7 @@ class SocialLoginBrowserE2ETest(
                 // 4. 결과 확인 - 데모 콜백 페이지로 리다이렉트되었는지 확인
                 val currentUrl = page.url()
                 val params = page.getQueryParams()
+                // 로그인 성공 시 토큰을 받거나 데모 콜백 페이지로 리다이렉트
                 (params.containsKey("access_token") || currentUrl.contains("/demo/auth/callback")) shouldBe true
 
                 page.saveScreenshot("google-login-result.png")
@@ -248,33 +196,27 @@ class SocialLoginBrowserE2ETest(
         it("카카오 인증 URL이 올바른 형식이다") {
             browser.withPage { page ->
                 page.navigateAndWait("$baseUrl/auth/oauth2/kakao/authorize")
-                val responseText = page.content()
 
-                responseText shouldContain "authorizationUrl"
-                responseText shouldContain "state"
-                responseText shouldContain "kauth.kakao.com"
+                page.url() shouldContain "kauth.kakao.com"
+                page.url() shouldContain "state="
             }
         }
 
         it("네이버 인증 URL이 올바른 형식이다") {
             browser.withPage { page ->
                 page.navigateAndWait("$baseUrl/auth/oauth2/naver/authorize")
-                val responseText = page.content()
 
-                responseText shouldContain "authorizationUrl"
-                responseText shouldContain "state"
-                responseText shouldContain "nid.naver.com"
+                page.url() shouldContain "nid.naver.com"
+                page.url() shouldContain "state="
             }
         }
 
         it("구글 인증 URL이 올바른 형식이다") {
             browser.withPage { page ->
                 page.navigateAndWait("$baseUrl/auth/oauth2/google/authorize")
-                val responseText = page.content()
 
-                responseText shouldContain "authorizationUrl"
-                responseText shouldContain "state"
-                responseText shouldContain "accounts.google.com"
+                page.url() shouldContain "accounts.google.com"
+                page.url() shouldContain "state="
             }
         }
     }

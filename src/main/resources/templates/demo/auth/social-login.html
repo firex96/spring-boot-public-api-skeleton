@@ -53,23 +53,9 @@
 
 <th:block th:replace="~{fragments/scripts :: token-script}"></th:block>
 <script>
-    async function socialLogin(provider) {
-        try {
-            // 인증 URL 요청
-            const response = await apiCall(`/auth/oauth2/${provider}/authorize`, 'GET');
-            showResult(response);
-
-            if (response.ok && response.data && response.data.authorizationUrl) {
-                // 3초 후 소셜 로그인 페이지로 리다이렉트 (데모에서는 보여주기용)
-                setTimeout(() => {
-                    if (confirm('소셜 로그인 페이지로 이동하시겠습니까?')) {
-                        window.location.href = response.data.authorizationUrl;
-                    }
-                }, 1000);
-            }
-        } catch (error) {
-            showError(error.message);
-        }
+    function socialLogin(provider) {
+        // 서버가 이 브라우저 세션에 state 를 묶어 발급하고 provider 인가 화면으로 302 한다 — state 를 페이지가 다루지 않는다
+        window.location.href = `/auth/oauth2/${provider}/authorize`;
     }
 </script>
 </body>

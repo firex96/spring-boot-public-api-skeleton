@@ -426,7 +426,7 @@ db/migration/{schema}/
   | 경로 | 형식 |
   |---|---|
   | OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`, `/oauth2/authorize` 의 리다이렉트 전 오류) | `OAuth2ErrorResponseModel` — RFC 6749 §5.2 `{error, error_description, error_uri}` |
-  | 그 밖의 모든 401·403·4xx (필터 체인 거부, `@PreAuthorize` 거부, 업무 예외) | `ErrorResponseModel` |
+  | 그 밖의 모든 401·403·4xx (필터 체인 거부, `@PreAuthorize` 거부, CSRF 거부, 업무 예외) | `ErrorResponseModel` |
 
   필터 체인 단계는 `SecurityErrorResponseWriter`, 컨트롤러 이후는 `GlobalExceptionHandler` 가 같은 모델을 쓴다. 필터 체인 핸들러에 임시 Map 본문을 두지 않는다. 익명 요청의 `AccessDeniedException` 은 401 이다. 검출: `ErrorResponseFormatE2ETest`.
 
@@ -474,6 +474,15 @@ interface ExternalApi {
 - 로컬 데모·e2e 는 `DemoInboxMailSender`(`@Profile("local", "e2e")`, `@Primary`)로 토큰을 받는다 — e2e 는 빈을 주입받아 `latest(to)`, local 은 `app.mail.demo-mailbox-dir`(`~/.skeleton/demo-mailbox`, 디렉터리 0700·파일 0600)의 수신자별 파일. **수신함을 HTTP 로 열지 않는다** — 수신자 외 누구나 읽는 표면은 프로파일이 무엇이든 계정 탈취 오라클이다
 - 비밀번호 재설정·이메일 인증 토큰은 `UserSelfBizService` 가 저장 뒤 **메일로만** 보낸다(서비스가 원본 토큰을 반환하지 않는다). `send` 가 던지면 같은 auth 트랜잭션이 롤백된다 — DB 에 남는 토큰은 전부 발송된 것(`MailSendFailureIntegrationTest`); 발송 뒤 커밋 실패는 메일의 토큰이 무효가 될 뿐(재요청)
 - 실제 발송(SMTP·SES)은 파생 프로젝트가 `MailSender` 구현 빈을 하나 더 두고 `@Primary` 로 올린다 — 계정·발신 도메인·정확히-한-번 배달(outbox)은 스켈레톤이 정하지 않는다
+
+### 9-3. 브라우저 세션 체인 (소셜 로그인·브라우저 흐름)
+- 필터 체인은 둘이다. **브라우저 체인**(`@Order(1)`, 경로 정본 `config/security/browser/BrowserSecurityPaths`)은 세션(`SKELETON_SESSION`, Spring Session Redis)·CSRF 를 쓰고 JWT 를 읽지 않는다. **API 체인**(`@Order(2)`)은 STATELESS·Bearer 그대로다. 브라우저 체인은 CORS 를 끈다(쿠키를 싣는 경로를 교차 출처에 열지 않는다)
+- `JwtAuthenticationFilter` 는 서블릿 자동 등록을 끈다(`jwtAuthenticationFilterRegistration`) — 켜 두면 브라우저 경로에서도 Bearer 가 SecurityContext 를 채운다
+- 세션에는 SecurityContext·CSRF 토큰·문자열만 둔다(JDK 직렬화 — `AuthenticatedUser` 는 `Serializable`). 요청 캐시는 끈다
+- **1회 소비 값은 세션 속성이 아니라 Redis `GETDEL`** 로 다룬다 — 세션은 요청마다 읽은 사본이라 동시 요청이 같은 값을 둘 다 소비할 수 있다
+- 소셜 state: `GET /auth/oauth2/{p}/authorize` 가 발급해 `browser:social-state:{state}`(TTL 5분)에 `{browserSessionId, provider}` 로 묶고 provider 로 302 한다. 콜백은 **무엇보다 먼저** 소비하고, 세션·provider 가 다르면 코드 교환 없이 `error=invalid_state` 다. `POST /auth/oauth2/{p}/login`·`/link` 는 네이티브 코드 교환이라 state 검증은 클라이언트 책임이다
+- 쿠키: HttpOnly · `SameSite=Lax`(Strict 면 provider 콜백에 쿠키가 실리지 않는다) · Secure 는 논리 키 `browser-session-cookie-secure`(기본 `true`, `local`·통합 테스트 `false`)
+- 검출: `SocialAuthorizationStateBizServiceTest`(유닛) · `SocialBrowserLoginIntegrationTest`(실제 체인·Redis 클러스터, 동시성) · `SocialAuthE2ETest`
 
 ### 10. Performance Monitoring
 - `@SlowMethod` 어노테이션으로 느린 메서드 감지

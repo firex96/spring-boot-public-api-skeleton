@@ -25,35 +25,28 @@
 ## UC-SOCIAL-001: 소셜 로그인 URL 조회
 
 ### 설명
-소셜 로그인을 위한 OAuth2 인증 URL을 생성하여 반환합니다.
+브라우저가 소셜 로그인을 시작합니다. 서버가 state 를 이 브라우저 세션에 묶어 발급하고 Provider 인증 화면으로 302 합니다.
 
 ### 선행조건
 - 없음
 
 ### 기본 흐름
-1. 클라이언트가 소셜 Provider를 지정하여 요청합니다.
-2. 시스템이 CSRF 방지를 위한 state 값을 생성합니다.
-3. 시스템이 해당 Provider의 인증 URL을 생성합니다.
-4. 시스템이 인증 URL과 state 값을 반환합니다.
+1. 브라우저가 `GET /auth/oauth2/{provider}/authorize` 로 이동합니다.
+2. 시스템이 브라우저 세션(`SKELETON_SESSION`)을 만들거나 이어 씁니다.
+3. 시스템이 state(32바이트 난수)를 발급해 Redis `browser:social-state:{state}` 에 세션 ID·provider 와 함께 5분 동안 저장합니다.
+4. 시스템이 Provider 인증 URL(state 포함)로 302 합니다.
 
 ### 입력
 - Path: `{provider}` - NAVER, KAKAO, GOOGLE 중 하나
 
 ### 출력
-```json
-{
-  "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=...&state=...",
-  "state": "random-uuid-state"
-}
-```
+- `302 Found`, `Location: <provider 인증 URL>?...&state=...`, `Set-Cookie: SKELETON_SESSION=...`
 
 ### 테스트 시나리오
 
 | 시나리오 | 입력 | 예상 결과 |
 |---|---|---|
-| Google 인증 URL 요청 | provider=GOOGLE | 200 OK, Google OAuth URL 반환 |
-| Naver 인증 URL 요청 | provider=NAVER | 200 OK, Naver OAuth URL 반환 |
-| Kakao 인증 URL 요청 | provider=KAKAO | 200 OK, Kakao OAuth URL 반환 |
+| 인증 시작 | provider=GOOGLE | 302, Location 에 state, 세션 쿠키 발급 |
 | 지원하지 않는 Provider | provider=FACEBOOK | 400 Bad Request |
 
 ---
@@ -69,20 +62,22 @@ OAuth2 인증 완료 후 Provider로부터의 콜백을 처리하고, 프론트�
 
 ### 기본 흐름
 1. Provider가 authorization code와 함께 콜백 URL을 호출합니다.
-2. 시스템이 code를 토큰으로 교환합니다.
+2. 시스템이 state 를 **가장 먼저** 소비합니다(Redis `GETDEL`). 같은 브라우저 세션·같은 provider 에서 발급한 값일 때만 다음으로 갑니다.
+3. 시스템이 code를 토큰으로 교환합니다.
 3. 시스템이 Provider API로 사용자 정보를 조회합니다.
 4. 시스템이 기존 사용자를 찾거나 새 사용자를 생성합니다.
 5. 시스템이 세션과 JWT 토큰을 생성합니다.
 6. 시스템이 프론트엔드 success 페이지로 리다이렉트합니다.
 
 ### 대안 흐름
+- **A0: state 불일치·만료·재사용·다른 세션** → 코드 교환 없이 `/demo/auth/callback?error=invalid_state` 로 리다이렉트(로그인 CSRF 차단)
 - **A1: 인증 실패** → 프론트엔드 error 페이지로 리다이렉트
 - **A2: Provider API 오류** → 프론트엔드 error 페이지로 리다이렉트
 
 ### 입력
 - Path: `{provider}` - NAVER, KAKAO, GOOGLE 중 하나
 - Query: `code` - Authorization code
-- Query: `state` - CSRF 방지 state 값
+- Query: `state` - UC-SOCIAL-001 이 이 브라우저 세션에 발급한 값
 - Query: `error` (선택) - 에러 코드
 - Query: `error_description` (선택) - 에러 설명
 
@@ -293,43 +288,50 @@ SPA나 모바일 앱에서 사용합니다.
 
 ## 시퀀스 다이어그램
 
-### 소셜 로그인 흐름 (Authorization Code Flow)
+### 소셜 로그인 흐름 — 브라우저 (Authorization Code Flow)
 
 ```
-User        Client            Backend              Provider
- |            |                   |                    |
- |-- 로그인 ---->|                   |                    |
- |            |-- GET /oauth2/{provider}/authorize --->|
- |            |<-- authorizationUrl + state ------------|
- |            |                   |                    |
- |<-- Redirect to Provider -------|                    |
- |---------------------------------------- 인증 ------->|
- |<-------------------------------------- code --------|
- |            |                   |                    |
- |-- code --->|                   |                    |
- |            |-- POST /oauth2/{provider}/login ------>|
- |            |                   |-- exchange code -->|
- |            |                   |<-- tokens ---------|
- |            |                   |-- get user info -->|
- |            |                   |<-- user info ------|
- |            |                   |                    |
- |            |                   |-- create/find user |
- |            |                   |-- create session   |
- |            |                   |-- generate JWT     |
- |            |<-- TokenResponseDto -------------------|
- |<-- tokens --|                   |                    |
+Browser                         Backend                          Provider
+   |                               |                                 |
+   |-- GET /auth/oauth2/{p}/authorize ->|                            |
+   |                               |-- state 발급 → Redis            |
+   |                               |   browser:social-state:{state}  |
+   |                               |   = {browserSessionId, p}, 5분  |
+   |<-- 302 provider?...&state ----|  + Set-Cookie SKELETON_SESSION  |
+   |------------------------------------------- 인증 --------------->|
+   |<------------------------------------ 302 callback?code&state ---|
+   |-- GET /auth/oauth2/{p}/callback?code&state (쿠키) ->|           |
+   |                               |-- GETDEL state, 세션·p 대조      |
+   |                               |   (불일치 → error=invalid_state) |
+   |                               |-- exchange code --------------->|
+   |                               |<-- tokens / user info ----------|
+   |                               |-- find user · create session · JWT
+   |<-- 302 /demo/auth/callback ---|                                 |
+```
+
+### 소셜 로그인 흐름 — 네이티브 클라이언트 (코드 교환)
+
+네이티브 앱이 provider SDK 로 직접 code 를 받는 경우다. 서버가 state 를 발급하지 않으므로 **state 검증은 앱의 책임**이다.
+
+```
+App (provider SDK)                Backend                      Provider
+   |-- 인증 (state 는 앱이 발급·검증) ----------------------------->|
+   |<-- code -------------------------------------------------------|
+   |-- POST /auth/oauth2/{p}/login {code} ->|                       |
+   |                                 |-- exchange code ------------>|
+   |                                 |<-- tokens / user info -------|
+   |<-- TokenResponse (본문) ---------|                              |
 ```
 
 ### 소셜 계정 연동 흐름
+
+연동도 네이티브 코드 교환 경로다 — code 를 받는 인증과 state 검증은 클라이언트가 한다.
 
 ```
 User        Client            Backend              Provider
  |            |                   |                    |
  |-- 연동 요청 ->|                   |                    |
- |            |-- GET /oauth2/{provider}/authorize --->|
- |            |<-- authorizationUrl + state ------------|
- |<-- Redirect to Provider -------|                    |
- |---------------------------------------- 인증 ------->|
+ |            |-- 인증 (provider SDK, state 는 클라이언트가 검증) ->|
  |<-------------------------------------- code --------|
  |-- code --->|                   |                    |
  |            |-- POST /oauth2/{provider}/link ------->|

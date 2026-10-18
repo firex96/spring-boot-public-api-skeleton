@@ -9,13 +9,10 @@ import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.support.fillInput
 import com.rex.api.pub.skeleton.support.navigateAndWait
 import com.rex.api.pub.skeleton.support.saveScreenshot
-import com.rex.api.pub.skeleton.support.unescapeJson
 import com.rex.api.pub.skeleton.support.waitForUrlPattern
 import com.rex.api.pub.skeleton.support.withPage
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.DescribeSpec
-import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.string.shouldContain
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
@@ -68,15 +65,8 @@ class SocialProviderIdDiscoveryTest(
             enabled = testProperties.kakao.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. 인증 URL 가져오기
+                // 1~2. 로그인 시작 — 서버가 state 를 이 브라우저 세션에 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/KAKAO/authorize")
-                val responseText = page.content()
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 카카오 로그인
-                page.navigateAndWait(authUrl)
                 performKakaoLogin(page, testProperties.kakao.email!!, testProperties.kakao.password!!)
 
                 // 3. 콜백 대기
@@ -90,7 +80,7 @@ class SocialProviderIdDiscoveryTest(
                     if (code != null) {
                         // 5. code로 사용자 정보 조회
                         val oauth2Client = getOAuth2Client(SocialProvider.KAKAO)
-                        val tokenResponse = oauth2Client.getAccessToken(code)
+                        val tokenResponse = oauth2Client.getAccessToken(code, extractQueryParam(currentUrl, "state"))
                         val userInfo = oauth2Client.getUserInfo(tokenResponse.accessToken)
 
                         println(
@@ -118,15 +108,8 @@ class SocialProviderIdDiscoveryTest(
             enabled = testProperties.naver.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. 인증 URL 가져오기
+                // 1~2. 로그인 시작 — 서버가 state 를 이 브라우저 세션에 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/NAVER/authorize")
-                val responseText = page.content()
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 네이버 로그인
-                page.navigateAndWait(authUrl)
                 performNaverLogin(page, testProperties.naver.id!!, testProperties.naver.password!!)
 
                 // 3. 콜백 대기
@@ -140,7 +123,7 @@ class SocialProviderIdDiscoveryTest(
                     if (code != null) {
                         // 5. code로 사용자 정보 조회
                         val oauth2Client = getOAuth2Client(SocialProvider.NAVER)
-                        val tokenResponse = oauth2Client.getAccessToken(code)
+                        val tokenResponse = oauth2Client.getAccessToken(code, extractQueryParam(currentUrl, "state"))
                         val userInfo = oauth2Client.getUserInfo(tokenResponse.accessToken)
 
                         println(
@@ -168,15 +151,8 @@ class SocialProviderIdDiscoveryTest(
             enabled = testProperties.google.isConfigured(),
         ) {
             browser.withPage { page ->
-                // 1. 인증 URL 가져오기
+                // 1~2. 로그인 시작 — 서버가 state 를 이 브라우저 세션에 묶고 provider 로 302 한다
                 page.navigateAndWait("$baseUrl/auth/oauth2/GOOGLE/authorize")
-                val responseText = page.content()
-                val authUrlMatch = """"authorizationUrl"\s*:\s*"([^"]+)"""".toRegex().find(responseText)
-                authUrlMatch.shouldNotBeNull()
-                val authUrl = unescapeJson(authUrlMatch.groupValues[1])
-
-                // 2. 구글 로그인
-                page.navigateAndWait(authUrl)
                 performGoogleLogin(page, testProperties.google.email!!, testProperties.google.password!!)
 
                 // 3. 콜백 대기
@@ -190,7 +166,7 @@ class SocialProviderIdDiscoveryTest(
                     if (code != null) {
                         // 5. code로 사용자 정보 조회
                         val oauth2Client = getOAuth2Client(SocialProvider.GOOGLE)
-                        val tokenResponse = oauth2Client.getAccessToken(code)
+                        val tokenResponse = oauth2Client.getAccessToken(code, extractQueryParam(currentUrl, "state"))
                         val userInfo = oauth2Client.getUserInfo(tokenResponse.accessToken)
 
                         println(

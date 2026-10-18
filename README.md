@@ -237,6 +237,7 @@ docker compose up -d && ./gradlew e2eTest         # e2e 는 check 에 묶지 않
 | `jwt-secret` | `JWT_SECRET` | ✔ | JWT HS256 서명키 (32자 이상) |
 | `oidc-issuer` | `OIDC_ISSUER` | | 이 서비스의 외부 주소 — id_token `iss` |
 | `oauth2-redirect-base-url` | `OAUTH2_REDIRECT_BASE_URL` | | 소셜 로그인 콜백의 기준 주소 |
+| `browser-session-cookie-secure` | `BROWSER_SESSION_COOKIE_SECURE` | | 브라우저 세션 쿠키(`SKELETON_SESSION`) Secure. 기본 `true`, `local` 은 `false` |
 | `oidc-rsa-private-key` · `oidc-rsa-public-key` | `OIDC_RSA_PRIVATE_KEY` · `OIDC_RSA_PUBLIC_KEY` | ✔ | RS256 을 켤 때만 (`application.yml` 의 `oidc` 주석) |
 | `{naver,kakao,google}-client-id` · `-client-secret` | `NAVER_CLIENT_ID` … | ✔(secret) | 소셜 로그인을 켤 때만 (`application.yml` 의 `oauth2` 주석) |
 
@@ -305,7 +306,7 @@ docker compose up -d
 
 **OAuth2 / OIDC** — Authorization Code Flow · Client Credentials Flow · ID Token 발급 · JWK Set 엔드포인트. RSA 키가 없으면 ID Token 은 기동 시 생성한 임시 키로 서명된다 — 운영은 `oidc-rsa-*` 를 등록하고 `oidc.require-rsa-key: true` 로 막는다.
 
-**소셜 로그인** — Google · Kakao · Naver. `application.yml` 의 `oauth2` 주석에서 켤 provider 만 푼다.
+**소셜 로그인** — Google · Kakao · Naver. `application.yml` 의 `oauth2` 주석에서 켤 provider 만 푼다. 브라우저는 `GET /auth/oauth2/{provider}/authorize` 로 이동한다 — 서버가 state 를 그 브라우저 세션(`SKELETON_SESSION`)에 묶어 발급하고, 콜백은 state 를 먼저 소비해 다른 세션·재사용·만료면 `invalid_state` 로 끝낸다. 브라우저 흐름만 세션·CSRF 를 쓰고 나머지 API 는 STATELESS·Bearer 다(CLAUDE.md 「9-3」).
 
 **권한** — 그룹 기반 RBAC + Permission 기반 접근 제어. 세션 폐기는 **요청자 소유 세션만**(타인 403). 401·403 본문은 OAuth2 프로토콜 엔드포인트(RFC 6749 형식)를 빼고 모두 `ErrorResponseModel` 이다 — 필터 체인 거부와 `@PreAuthorize` 거부가 같은 형식이다(`docs/ERROR_CODES.md`).
 

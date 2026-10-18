@@ -11,6 +11,7 @@ import com.rex.api.pub.skeleton.support.expectSuccess
 import com.rex.api.pub.skeleton.support.postJson
 import com.rex.api.pub.skeleton.util.ClientIpResolver
 import io.kotest.core.spec.style.BehaviorSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.mockk.every
 import io.mockk.verify
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -49,51 +50,20 @@ class SocialAuthControllerTest(
         // ============================================
         // UC-SOCIAL-001: 소셜 로그인 URL 조회 (인증 불필요)
         // ============================================
-        Given("GET /auth/oauth2/{provider}/authorize - 소셜 로그인 URL 조회 API") {
+        Given("GET /auth/oauth2/{provider}/authorize - 소셜 로그인 시작") {
             When("Google Provider로 요청") {
-                val expectedUrl = "https://accounts.google.com/o/oauth2/v2/auth?client_id=..."
-                every { socialAuthMappingService.getAuthorizationUrl(SocialProvider.GOOGLE, any()) } returns expectedUrl
+                val expectedUrl = "https://accounts.google.com/o/oauth2/v2/auth?client_id=cid&state=issued-state"
+                every { socialAuthMappingService.issueAuthorizationRedirect(SocialProvider.GOOGLE, any()) } returns expectedUrl
 
-                Then("200 OK와 인증 URL을 반환한다") {
-                    mockMvc.get("/auth/oauth2/GOOGLE/authorize") {
-                        accept = MediaType.APPLICATION_JSON
-                    }.andExpect {
-                        status { isOk() }
-                        jsonPath("$.authorizationUrl") { exists() }
-                        jsonPath("$.state") { exists() }
-                    }
+                Then("브라우저 세션 ID 로 state 를 발급받아 provider 인가 URL 로 302 한다") {
+                    val result =
+                        mockMvc.get("/auth/oauth2/GOOGLE/authorize").andExpect {
+                            status { isFound() }
+                            header { string("Location", expectedUrl) }
+                        }.andReturn()
 
-                    verify(exactly = 1) { socialAuthMappingService.getAuthorizationUrl(SocialProvider.GOOGLE, any()) }
-                }
-            }
-
-            When("Naver Provider로 요청") {
-                val expectedUrl = "https://nid.naver.com/oauth2.0/authorize?client_id=..."
-                every { socialAuthMappingService.getAuthorizationUrl(SocialProvider.NAVER, any()) } returns expectedUrl
-
-                Then("200 OK와 인증 URL을 반환한다") {
-                    mockMvc.get("/auth/oauth2/NAVER/authorize") {
-                        accept = MediaType.APPLICATION_JSON
-                    }.andExpect {
-                        status { isOk() }
-                        jsonPath("$.authorizationUrl") { exists() }
-                        jsonPath("$.state") { exists() }
-                    }
-                }
-            }
-
-            When("Kakao Provider로 요청") {
-                val expectedUrl = "https://kauth.kakao.com/oauth/authorize?client_id=..."
-                every { socialAuthMappingService.getAuthorizationUrl(SocialProvider.KAKAO, any()) } returns expectedUrl
-
-                Then("200 OK와 인증 URL을 반환한다") {
-                    mockMvc.get("/auth/oauth2/KAKAO/authorize") {
-                        accept = MediaType.APPLICATION_JSON
-                    }.andExpect {
-                        status { isOk() }
-                        jsonPath("$.authorizationUrl") { exists() }
-                        jsonPath("$.state") { exists() }
-                    }
+                    val sessionId = result.request.getSession(false)?.id.shouldNotBeNull()
+                    verify(exactly = 1) { socialAuthMappingService.issueAuthorizationRedirect(SocialProvider.GOOGLE, sessionId) }
                 }
             }
 
@@ -108,13 +78,34 @@ class SocialAuthControllerTest(
             }
         }
 
+        Given("GET /auth/oauth2/{provider}/callback - state 검증") {
+            When("state 가 이 브라우저 세션에서 발급한 값이 아니면") {
+                every { socialAuthMappingService.consumeState(SocialProvider.GOOGLE, any(), "forged") } returns false
+
+                Then("코드 교환 없이 invalid_state 로 302 한다") {
+                    mockMvc.get("/auth/oauth2/google/callback") {
+                        param("code", "provider-code")
+                        param("state", "forged")
+                    }.andExpect {
+                        status { isFound() }
+                        header { string("Location", org.hamcrest.Matchers.startsWith("/demo/auth/callback?error=invalid_state")) }
+                    }
+
+                    verify(exactly = 0) { socialAuthMappingService.socialLogin(any(), any(), any(), any(), any(), any()) }
+                }
+            }
+        }
+
         // ============================================
         // UC-SOCIAL-003: 소셜 로그인 (코드 교환) - 인증 불필요
         // ============================================
         Given("GET /auth/oauth2/{provider}/callback - provider 오류 콜백") {
-            When("error·error_description 에 &·#·공백이 섞여 오면") {
+            When("state 가 맞고 error·error_description 에 &·#·공백이 섞여 오면") {
+                every { socialAuthMappingService.consumeState(SocialProvider.GOOGLE, any(), "issued") } returns true
+
                 Then("데모 콜백으로 302 하되 값 하나에 인코딩 한 번 — 구분자로 새지 않는다") {
                     mockMvc.get("/auth/oauth2/google/callback") {
+                        param("state", "issued")
                         param("error", "access denied")
                         param("error_description", "a&b#c d")
                     }.andExpect {
@@ -144,6 +135,7 @@ class SocialAuthControllerTest(
                     socialAuthMappingService.socialLogin(
                         provider = SocialProvider.GOOGLE,
                         code = any(),
+                        state = null,
                         deviceType = any(),
                         deviceInfo = any(),
                         ipAddress = "203.0.113.10",
@@ -163,6 +155,7 @@ class SocialAuthControllerTest(
                         socialAuthMappingService.socialLogin(
                             provider = SocialProvider.GOOGLE,
                             code = any(),
+                            state = null,
                             deviceType = any(),
                             deviceInfo = any(),
                             ipAddress = "203.0.113.10",

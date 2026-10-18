@@ -1,6 +1,7 @@
 package com.rex.api.pub.skeleton.controller.auth
 
 import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
+import com.rex.api.pub.skeleton.config.security.browser.BrowserSecurityPaths
 import com.rex.api.pub.skeleton.dto.auth.SocialLoginRequestDto
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.model.auth.SocialAccountModel
@@ -25,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.util.UUID
 
 @Tag(name = "Social Auth", description = "소셜 로그인 API")
 @RestController
@@ -34,19 +34,17 @@ class SocialAuthController(
     private val socialAuthMappingService: SocialAuthMappingService,
     private val clientIpResolver: ClientIpResolver,
 ) {
-    @Operation(summary = "소셜 로그인 URL 조회", description = "소셜 로그인을 위한 인증 URL을 반환합니다")
+    @Operation(
+        summary = "소셜 로그인 시작",
+        description = "브라우저 세션에 묶인 state 를 발급하고 provider 인가 화면으로 302 한다. 브라우저가 이 경로로 직접 이동한다",
+    )
     @GetMapping("/{provider}/authorize")
-    fun getAuthorizationUrl(
+    fun authorize(
         @PathVariable provider: SocialProvider,
-    ): ResponseEntity<Map<String, String>> {
-        val state = UUID.randomUUID().toString()
-        val authorizationUrl = socialAuthMappingService.getAuthorizationUrl(provider, state)
-        return ResponseEntity.ok(
-            mapOf(
-                "authorizationUrl" to authorizationUrl,
-                "state" to state,
-            ),
-        )
+        httpRequest: HttpServletRequest,
+        httpResponse: HttpServletResponse,
+    ) {
+        httpResponse.sendRedirect(socialAuthMappingService.issueAuthorizationRedirect(provider, httpRequest.getSession(true).id))
     }
 
     @Operation(summary = "소셜 로그인 콜백 (리다이렉트)", description = "OAuth 인증 후 콜백 처리 - 프론트엔드로 리다이렉트")
@@ -60,19 +58,22 @@ class SocialAuthController(
         httpRequest: HttpServletRequest,
         httpResponse: HttpServletResponse,
     ) {
+        // state 는 무엇보다 먼저 소비한다 — 이 브라우저 세션이 시작한 인가가 아니면 provider 오류든 코드든 처리하지 않는다(로그인 CSRF 차단)
+        val browserSessionId = httpRequest.getSession(false)?.id ?: ""
+        if (!socialAuthMappingService.consumeState(provider, browserSessionId, state)) {
+            redirectToCallbackError(httpResponse, "invalid_state", "State does not match this browser session")
+            return
+        }
+
         // 에러 처리
         if (error != null) {
-            // 데모 콜백 페이지로 에러 리다이렉트
-            // 값 하나에 인코딩 한 번 — provider 가 준 error·error_description 의 &·#·공백이 쿼리 구분자로 새지 않게
-            val encodedError = URLEncoder.encode(error, StandardCharsets.UTF_8)
-            val encodedDescription = URLEncoder.encode(errorDescription ?: "", StandardCharsets.UTF_8)
-            httpResponse.sendRedirect("/demo/auth/callback?error=$encodedError&error_description=$encodedDescription")
+            redirectToCallbackError(httpResponse, error, errorDescription ?: "")
             return
         }
 
         // code가 없는 경우 에러 처리
         if (code.isNullOrBlank()) {
-            httpResponse.sendRedirect("/demo/auth/callback?error=missing_code&error_description=Authorization%20code%20is%20missing")
+            redirectToCallbackError(httpResponse, "missing_code", "Authorization code is missing")
             return
         }
 
@@ -82,6 +83,7 @@ class SocialAuthController(
             socialAuthMappingService.socialLogin(
                 provider = provider,
                 code = code,
+                state = state,
                 deviceType = "WEB",
                 deviceInfo = httpRequest.getHeader("User-Agent"),
                 ipAddress = ipAddress,
@@ -94,6 +96,10 @@ class SocialAuthController(
         )
     }
 
+    /**
+     * 네이티브 클라이언트가 provider SDK 로 직접 받은 코드를 교환한다. 서버가 state 를 발급하지 않은 흐름이므로
+     * state 검증은 그 클라이언트의 책임이다 — 브라우저 흐름은 `authorize` → `callback` 을 쓴다.
+     */
     @Operation(summary = "소셜 로그인 (코드 교환)", description = "Authorization code를 토큰으로 교환합니다")
     @PostMapping("/{provider}/login")
     fun socialLogin(
@@ -106,6 +112,7 @@ class SocialAuthController(
             socialAuthMappingService.socialLogin(
                 provider = provider,
                 code = request.code,
+                state = null,
                 deviceType = request.deviceType,
                 deviceInfo = request.deviceInfo,
                 ipAddress = ipAddress,
@@ -147,5 +154,12 @@ class SocialAuthController(
     ): ResponseEntity<List<SocialAccountModel>> {
         val accounts = socialAuthMappingService.getSocialAccounts(user.userId)
         return ResponseEntity.ok(accounts)
+    }
+
+    /** 데모 콜백으로 오류 리다이렉트 — 값 하나에 인코딩 한 번(provider 가 준 &·#·공백이 쿼리 구분자로 새지 않게). */
+    private fun redirectToCallbackError(response: HttpServletResponse, error: String, description: String) {
+        val encodedError = URLEncoder.encode(error, StandardCharsets.UTF_8)
+        val encodedDescription = URLEncoder.encode(description, StandardCharsets.UTF_8)
+        response.sendRedirect("${BrowserSecurityPaths.DEMO_CALLBACK}?error=$encodedError&error_description=$encodedDescription")
     }
 }
