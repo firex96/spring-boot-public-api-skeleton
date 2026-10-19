@@ -91,6 +91,16 @@ class AdminSecurityController(
         return ResponseEntity.ok(MessageResponseModel("계정 잠금이 해제되었습니다: ${request.username}"))
     }
 
+    @Operation(summary = "2차 인증 초기화", description = "인증 앱·복구 코드를 모두 잃은 사용자 — 등록을 지우고 그 사용자의 세션을 모두 폐기한다. 등록이 없으면 404")
+    @DeleteMapping("/accounts/{userId}/mfa")
+    fun resetMfa(
+        @PathVariable userId: Long,
+        @AuthenticationPrincipal admin: AuthenticatedUser,
+    ): ResponseEntity<Void> {
+        mappingService.resetMfa(userId, admin.userId)
+        return ResponseEntity.noContent().build()
+    }
+
     @Operation(summary = "계정 로그인 시도 상태 확인")
     @GetMapping("/accounts/status/{username}")
     fun getAccountStatus(@PathVariable username: String): ResponseEntity<LoginAttemptStatusModel> =

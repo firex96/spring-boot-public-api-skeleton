@@ -7,6 +7,7 @@ import com.rex.api.pub.skeleton.model.security.BlockedIpModel
 import com.rex.api.pub.skeleton.model.security.IpBlockStatusModel
 import com.rex.api.pub.skeleton.model.security.LoginAttemptStatusModel
 import com.rex.api.pub.skeleton.model.security.SecuritySettingsModel
+import com.rex.api.pub.skeleton.service.mfa.MfaBizService
 import com.rex.api.pub.skeleton.service.security.SecurityBizService
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service
 @Service
 class SecurityMappingService(
     private val securityBizService: SecurityBizService,
+    private val mfaBizService: MfaBizService,
     private val securityProperties: SecurityProperties,
     private val mapper: SecurityMapper,
 ) {
@@ -57,6 +59,10 @@ class SecurityMappingService(
 
     fun unlockAccount(username: String) {
         securityBizService.unlockAccount(username)
+    }
+
+    fun resetMfa(userId: Long, adminId: Long) {
+        mfaBizService.resetByAdmin(userId, adminId)
     }
 
     fun getAccountStatus(username: String): LoginAttemptStatusModel {

@@ -125,6 +125,26 @@ class MfaBizService(
     }
 
     /**
+     * 관리자 초기화 — 인증 앱·복구 코드를 모두 잃은 사용자의 등록을 지우고, 그 사용자의 세션을 **모두** 폐기한다.
+     * 등록이 없으면 [ResourceNotFoundException](404). 감사의 주체는 관리자다.
+     */
+    @Transactional(transactionManager = "authTransactionManager")
+    fun resetByAdmin(userId: Long, adminId: Long) {
+        userMfaEntityService.lockCredential(userId)
+        if (!userMfaEntityService.deleteAll(userId)) throw ResourceNotFoundException("2차 인증 등록이 없습니다: userId=$userId")
+        userSessionRevocationBizService.revokeAll(userId, MFA_RESET_REASON, exceptSessionId = null)
+        clearManageAttempts(userId)
+        auditBizService.logSafely(
+            eventType = AuditEventType.MFA_RESET_BY_ADMIN,
+            eventCategory = AuditBizService.CATEGORY_ADMIN,
+            userId = adminId,
+            resourceType = "USER",
+            resourceId = userId.toString(),
+            description = "관리자가 2차 인증 초기화",
+        )
+    }
+
+    /**
      * 켜져 있는(ACTIVE) 등록에 대해 코드를 확인한다 — 맞고 아직 쓰지 않은 구간이면 true. 실패 기록·감사는 호출자가 한다.
      */
     @Transactional(transactionManager = "authTransactionManager")
@@ -181,6 +201,7 @@ class MfaBizService(
 
     companion object {
         const val MFA_ENABLED_REASON = "MFA_ENABLED"
+        const val MFA_RESET_REASON = "MFA_RESET_BY_ADMIN"
         private const val SECRET_BYTES = 20 // RFC 4226 권장 160비트
         private const val RECOVERY_CODE_BYTES = 5 // Base32 8자 = 40비트
         private const val MANAGE_ATTEMPT_KEY_PREFIX = "mfa:manage:attempt:"

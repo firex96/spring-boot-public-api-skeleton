@@ -482,6 +482,7 @@ interface ExternalApi {
 - 복구 코드: activate 응답이 10개(`XXXX-XXXX`, Base32 40비트)를 한 번만 준다. 저장은 `TokenHasher.hash`(대소문자·하이픈 무시), 유일성은 `(user_id, code_hash)`. 재발급(`POST /user/mfa/recovery-codes`, TOTP 재인증)은 이전 코드를 모두 무효로 한다. 남은 코드가 있으면 challenge `methods` 에 `recovery` 가 들어간다. 해제는 복구 코드로도 된다
 - 2단계 실패는 비밀번호 실패와 **같은 계정 잠금 카운터**를 올리고(challenge 를 바꿔도 누적), 카운터는 **2단계 성공 때만** 지운다(1단계 성공은 지우지 않는다). challenge 하나에서 5번 틀리면 challenge 를 지운다(`FAIL_SCRIPT` — 키가 있을 때만 증가)
 - 등록·관리 API 의 재인증은 비밀번호가 아니라 현재 코드다(소셜 전용 사용자는 비밀번호가 없다). 실패는 로그인 잠금과 별개인 `mfa:manage:attempt:{userId}`(5회/15분, 429)로 막는다. activate 는 현재 세션을 뺀 나머지 세션을 폐기한다
+- 관리자 초기화: `DELETE /admin/security/accounts/{userId}/mfa`(`admin:security:manage`) → `SecurityMappingService.resetMfa` → `MfaBizService.resetByAdmin` — 등록·복구 코드 삭제, 그 사용자의 세션 전부 폐기, 관리 API 실패 카운터 삭제, 감사 `MFA_RESET_BY_ADMIN`. 등록이 없으면 404
 - 응답: API 1단계 `202 MfaChallengeModel{mfaToken, expiresIn, methods}` → `POST /auth/login/mfa`. 오류 `MfaException`(`MFA001`~`MFA006`, `docs/ERROR_CODES.md`)
 - 검출: `TotpTest`·`Base32Test`·`MfaSecretCipherTest`(유닛) · `MfaChallengeIntegrationTest`(재사용·동시 8건 중 1건(같은 TOTP·서로 다른 복구 코드)·출처·한도·잠금 우선·1단계가 카운터를 지우지 않음) · `SocialBrowserLoginIntegrationTest`「2차 인증」 · `MfaE2ETest`
 

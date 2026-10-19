@@ -1307,6 +1307,23 @@ IP 차단 상태 확인
 
 ---
 
+#### DELETE /admin/security/accounts/{userId}/mfa
+
+2차 인증 초기화 — 인증 앱·복구 코드를 모두 잃은 사용자. 등록·복구 코드를 지우고 **그 사용자의 세션을 모두 폐기**한다. 감사 `MFA_RESET_BY_ADMIN`(주체는 관리자).
+
+**권한 필요**: `admin:security:manage`
+
+#### Response `204 No Content`
+
+#### Errors
+
+| 코드 | 설명 |
+|------|------|
+| 403 | 권한 없음 |
+| 404 | 2차 인증 등록이 없다 |
+
+---
+
 #### GET /admin/security/accounts/status/{username}
 
 계정 로그인 시도 상태 확인

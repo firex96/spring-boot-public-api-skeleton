@@ -11,11 +11,13 @@ import com.rex.api.pub.skeleton.support.E2eResourceJanitor
 import com.rex.api.pub.skeleton.support.E2eResources
 import com.rex.api.pub.skeleton.support.createAndLoginUser
 import com.rex.api.pub.skeleton.support.createOAuth2TestClient
+import com.rex.api.pub.skeleton.support.deleteWithAuth
 import com.rex.api.pub.skeleton.support.enableMfa
 import com.rex.api.pub.skeleton.support.enableMfaWithRecoveryCodes
 import com.rex.api.pub.skeleton.support.getWithAuth
 import com.rex.api.pub.skeleton.support.postJson
 import com.rex.api.pub.skeleton.support.postWithAuth
+import com.rex.api.pub.skeleton.support.superAdminToken
 import com.rex.api.pub.skeleton.util.TotpCodes
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
@@ -221,6 +223,21 @@ class MfaE2ETest(
             restTemplate.postWithAuth<String>("/user/mfa/disable", user.accessToken, mapOf("method" to "recovery", "code" to recoveryCodes[1]))
                 .statusCode shouldBe HttpStatus.NO_CONTENT
             passwordLogin(user.loginId).statusCode shouldBe HttpStatus.OK
+        }
+    }
+
+    describe("관리자 초기화") {
+        it("인증 앱·복구 코드를 다 잃은 사용자 — 초기화하면 기존 세션은 401, 2차 인증 없이 로그인된다. 다시 하면 404, 일반 사용자는 403") {
+            val user = restTemplate.createAndLoginUser(resources, "e2e_mfa_")
+            restTemplate.enableMfa(user.accessToken)
+            val admin = restTemplate.superAdminToken()
+
+            restTemplate.deleteWithAuth<String>("/admin/security/accounts/${user.userId}/mfa", user.accessToken).statusCode shouldBe HttpStatus.FORBIDDEN
+            restTemplate.deleteWithAuth<String>("/admin/security/accounts/${user.userId}/mfa", admin).statusCode shouldBe HttpStatus.NO_CONTENT
+
+            restTemplate.getWithAuth<String>("/users/me", user.accessToken).statusCode shouldBe HttpStatus.UNAUTHORIZED
+            passwordLogin(user.loginId).statusCode shouldBe HttpStatus.OK
+            restTemplate.deleteWithAuth<String>("/admin/security/accounts/${user.userId}/mfa", admin).statusCode shouldBe HttpStatus.NOT_FOUND
         }
     }
 
