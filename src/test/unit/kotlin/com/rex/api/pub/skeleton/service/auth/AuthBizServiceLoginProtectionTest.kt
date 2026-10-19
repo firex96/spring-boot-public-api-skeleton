@@ -52,6 +52,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             passwordEncoder,
             loginAttemptBizService,
             sessionIssueBizService,
+            mockk<UserSessionRevocationBizService>(),
         )
 
     val ip = "203.0.113.10"

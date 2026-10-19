@@ -467,6 +467,7 @@ interface ExternalApi {
 
 ### 9-0. 로그인과 세션 발급
 - 1st-party 세션(`user_sessions` 행·access/refresh 토큰·세션 캐시)은 **`SessionIssueBizService.issue` 한 곳에서만** 만든다 — 비밀번호(`AuthBizService.login`)·소셜(`SocialAuthBizService.socialLogin`) 모두. 인증 판단(비밀번호 비교·소셜 검증·로그인 보호)은 호출자가 끝낸 뒤에 부른다
+- 세션 일괄 폐기는 `UserSessionRevocationBizService.revokeAll(userId, reason, exceptSessionId)` 한 곳이다 — 호출자는 사유와 남길 세션만 정한다
 - `AuthBizService.verifyPassword` 는 로그인 보호(차단 IP·잠금·실패 기록)를 집행하고 확인된 사용자만 돌려준다. **성공해도 실패 카운터를 지우지 않는다** — 호출자가 인증이 최종적으로 끝난 지점에서 `clearAttempts` 를 부른다
 - 검출: `SessionIssueBizServiceTest` · `AuthBizServiceLoginProtectionTest`(유닛)
 
@@ -501,7 +502,7 @@ interface ExternalApi {
 - 소셜 state: `GET /auth/oauth2/{p}/authorize` 가 발급해 `browser:social-state:{state}`(TTL 5분)에 `{browserSessionId, provider}` 로 묶고 provider 로 302 한다. 콜백은 **무엇보다 먼저** 소비하고, 세션·provider 가 다르면 코드 교환 없이 `error=invalid_state` 다. `POST /auth/oauth2/{p}/login`·`/link` 는 네이티브 코드 교환이라 state 검증은 클라이언트 책임이다
 - **소셜 콜백은 토큰을 URL 에 싣지 않는다.** 성공하면 토큰을 `browser:token-handoff:{userSessionId}`(TTL 60초)에 맡기고, `changeSessionId` 뒤 SecurityContext 를 세션에 저장(`BrowserSessionAuthenticator`)하고, 쿼리 없이 `/demo/auth/callback` 으로 보낸다. 페이지는 세션 쿠키 + CSRF 헤더로 `POST /auth/session/token` 을 한 번 부른다(두 번째·미로그인 401, CSRF 없음 403)
 - **인가 서버 브라우저 흐름**: `/oauth2/authorize`·`/oauth2/login`·`/oauth2/consent` 는 브라우저 체인이다 — authorize 는 브라우저 세션으로만 로그인을 판정한다. `LOGIN_REQUIRED` 면 원래 authorize URL 을 서버가 다시 조립해 세션(`AuthorizationRequestStore`, `/oauth2/authorize?` 접두사 강제)에 두고 `/oauth2/login` 으로 보낸다 — 복귀 주소를 쿼리로 받지 않는다(오픈 리다이렉트). 로그인(`OAuth2BrowserController`)은 `AuthBizService.loginForBrowser` → `login` 을 그대로 지나 로그인 보호를 재사용하고 토큰을 내주지 않는다. 동의는 HTML 폼(`templates/oauth2/`, 데모 fragments 에 기대지 않는다)이고 결과를 저장하지 않는다. 화면의 OAuth2 검증 실패는 `oauth2/error` HTML(401/400), Location 없음
-- 브라우저 세션 principal 은 사용자 세션 ID 를 든다. `BrowserSessionValidationFilter` 가 요청마다 `validateSession` 으로 폐기를 보고 세션을 버린다 — 로그아웃·전체 로그아웃·비밀번호 변경이 브라우저 세션에도 걸린다. 일괄 폐기는 **폐기 전에** 대상 세션을 모으고 **커밋 뒤에** 그 캐시를 지운다(`AuthBizService.revokeAllAndEvict` → `SessionCacheBizService.evictRevokedSessions`) — 폐기 뒤 "살아 있는 세션" 으로 찾으면 방금 폐기한 세션의 캐시가 남고, 커밋 전에 지우면 다른 요청이 폐기 전 행을 다시 캐시에 올린다. `deleteAllUserSessions` 는 권한 갱신 전용이다. 조회 쪽 캐시 miss 는 `cacheSessionUnlessRevoked` — 폐기 표식(`session:revoked:{id}`)이 없을 때만 쓰는 Lua 스크립트(해시 태그로 같은 슬롯)라, 폐기가 끝난 뒤 폐기 전 값이 다시 캐시에 나타나지 않는다
+- 브라우저 세션 principal 은 사용자 세션 ID 를 든다. `BrowserSessionValidationFilter` 가 요청마다 `validateSession` 으로 폐기를 보고 세션을 버린다 — 로그아웃·전체 로그아웃·비밀번호 변경이 브라우저 세션에도 걸린다. 일괄 폐기는 **폐기 전에** 대상 세션을 모으고 **커밋 뒤에** 그 캐시를 지운다(`UserSessionRevocationBizService.revokeAll` → `SessionCacheBizService.evictRevokedSessions`) — 폐기 뒤 "살아 있는 세션" 으로 찾으면 방금 폐기한 세션의 캐시가 남고, 커밋 전에 지우면 다른 요청이 폐기 전 행을 다시 캐시에 올린다. `deleteAllUserSessions` 는 권한 갱신 전용이다. 조회 쪽 캐시 miss 는 `cacheSessionUnlessRevoked` — 폐기 표식(`session:revoked:{id}`)이 없을 때만 쓰는 Lua 스크립트(해시 태그로 같은 슬롯)라, 폐기가 끝난 뒤 폐기 전 값이 다시 캐시에 나타나지 않는다
 - 쿠키: HttpOnly · `SameSite=Lax`(Strict 면 provider 콜백에 쿠키가 실리지 않는다) · Secure 는 논리 키 `browser-session-cookie-secure`(기본 `true`, `local`·통합 테스트 `false`)
 - 검출: `SocialAuthorizationStateBizServiceTest`·`TokenHandoffBizServiceTest`(유닛) · `SocialBrowserLoginIntegrationTest`(실제 체인·Redis 클러스터, 세션 복원, 동시성) · `SocialAuthE2ETest` · `AuthorizationRequestStoreTest` · `OAuth2BrowserControllerTest` · `OAuth2AuthorizationE2ETest`(로그인·동의 왕복) · `SessionOwnershipE2ETest` O-4·O-5(일괄 폐기)
 
