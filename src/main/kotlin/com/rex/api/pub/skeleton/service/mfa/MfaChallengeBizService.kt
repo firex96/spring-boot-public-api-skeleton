@@ -142,7 +142,7 @@ class MfaChallengeBizService(
             if (loginAttemptBizService.isUserLocked(loginId)) throw loginAttemptBizService.accountLockedException(loginId)
             throw MfaException(ErrorCode.MFA_INVALID_CODE, "코드가 올바르지 않습니다")
         }
-        // 5. 소비 — DEL 이 1 을 돌려준 요청만 세션을 받는다. 진 요청은 방금 한 사용 표시(TOTP 구간)를 되돌린다
+        // 5. 소비 — DEL 이 1 을 돌려준 요청만 세션을 받는다. 진 요청은 방금 한 사용 표시(복구 코드·TOTP 구간)를 되돌린다
         if (redisTemplate.delete(key) != true) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()
             throw invalidChallenge()
@@ -153,7 +153,7 @@ class MfaChallengeBizService(
         val provider = challenge[FIELD_PROVIDER]?.let { SocialProvider.valueOf(it) }
         val session = loginCompletionBizService.complete(user, provider, challenge[FIELD_DEVICE_TYPE], challenge[FIELD_DEVICE_INFO], ipAddress, clearAttempts = true)
         auditBizService.logSafely(
-            eventType = AuditEventType.MFA_CHALLENGE_SUCCESS,
+            eventType = if (method == MfaMethod.RECOVERY) AuditEventType.MFA_RECOVERY_CODE_USED else AuditEventType.MFA_CHALLENGE_SUCCESS,
             eventCategory = AuditBizService.CATEGORY_AUTH,
             userId = userId,
             username = loginId,

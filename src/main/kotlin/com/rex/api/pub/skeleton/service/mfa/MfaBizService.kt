@@ -16,6 +16,7 @@ import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserMfaEntityServic
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
 import com.rex.api.pub.skeleton.service.auth.UserSessionRevocationBizService
 import com.rex.api.pub.skeleton.util.Base32
+import com.rex.api.pub.skeleton.util.TokenHasher
 import com.rex.api.pub.skeleton.util.Totp
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.script.RedisScript
@@ -27,9 +28,9 @@ import java.security.SecureRandom
 import java.time.Clock
 
 /**
- * 2차 인증(TOTP) — 등록·해제와 코드 검증. 로그인 2단계(`MfaChallengeBizService`)도 코드 검증은 여기 [verifyCode] 를 쓴다.
+ * 2차 인증(TOTP + 복구 코드) — 등록·해제·복구 코드 재발급과 코드 검증. 로그인 2단계(`MfaChallengeBizService`)도 코드 검증은 여기 [verifyCode] 를 쓴다.
  *
- * 같은 TOTP 구간의 코드는 한 번만 통과한다(DB 조건부 UPDATE). 등록·관리 API 의 재인증은 비밀번호가 아니라 현재 코드다 —
+ * 같은 TOTP 구간의 코드와 같은 복구 코드는 한 번만 통과한다(DB 조건부 UPDATE). 등록·관리 API 의 재인증은 비밀번호가 아니라 현재 코드다 —
  * 소셜 전용 사용자는 비밀번호가 없다. 관리 API 의 실패는 로그인 잠금과 별개인 사용자별 카운터로 제한한다(세션 탈취 뒤 추측 방지).
  */
 @Service
@@ -42,6 +43,7 @@ class MfaBizService(
     private val mfaProperties: MfaProperties,
     private val auditBizService: AuditBizService,
     private val redisTemplate: StringRedisTemplate,
+    private val tokenHasher: TokenHasher,
     private val clock: Clock,
 ) {
     private val random = SecureRandom()
@@ -52,11 +54,14 @@ class MfaBizService(
     @Transactional(transactionManager = "authTransactionManager")
     fun isEnabledForLogin(userId: Long): Boolean = userMfaEntityService.isActiveForLogin(userId)
 
-    fun status(userId: Long): MfaStatusDto = MfaStatusDto(enabled = isEnabled(userId), recoveryCodesLeft = 0)
+    fun status(userId: Long): MfaStatusDto =
+        isEnabled(userId).let { enabled ->
+            MfaStatusDto(enabled = enabled, recoveryCodesLeft = if (enabled) userMfaEntityService.countUnusedRecoveryCodes(userId) else 0)
+        }
 
-    /** 로그인 2단계에서 쓸 수 있는 수단 — TOTP. */
-    @Suppress("UNUSED_PARAMETER")
-    fun availableMethods(userId: Long): List<MfaMethod> = listOf(MfaMethod.TOTP)
+    /** 로그인 2단계에서 쓸 수 있는 수단 — TOTP 와, 남은 복구 코드가 있으면 복구 코드. */
+    fun availableMethods(userId: Long): List<MfaMethod> =
+        if (userMfaEntityService.countUnusedRecoveryCodes(userId) > 0) listOf(MfaMethod.TOTP, MfaMethod.RECOVERY) else listOf(MfaMethod.TOTP)
 
     /** 등록 시작 — 새 시크릿을 PENDING 으로 둔다(이전 PENDING 은 대체). 첫 코드를 [activate] 로 확인해야 켜진다. */
     @Transactional(transactionManager = "authTransactionManager")
@@ -74,6 +79,7 @@ class MfaBizService(
 
     /**
      * 첫 코드 확인 — 맞으면 켜고, 현재 세션을 뺀 나머지 세션을 폐기한다(켜기 전에 만들어진, 2단계를 거치지 않은 세션).
+     * 복구 코드를 새로 만들어 원본을 한 번만 돌려준다(남아 있던 코드는 지운다).
      */
     @Transactional(transactionManager = "authTransactionManager")
     fun activate(userId: Long, code: String, currentSessionId: String): MfaRecoveryCodesDto {
@@ -83,10 +89,28 @@ class MfaBizService(
         if (!matchAndMarkTotp(userId, credential.totpSecretEncrypted, code)) failManage(userId)
 
         userMfaEntityService.activate(userId)
+        val recoveryCodes = issueRecoveryCodes(userId)
         userSessionRevocationBizService.revokeAll(userId, MFA_ENABLED_REASON, exceptSessionId = currentSessionId)
         clearManageAttempts(userId)
         auditBizService.logSafely(eventType = AuditEventType.MFA_ENROLLED, eventCategory = AuditBizService.CATEGORY_AUTH, userId = userId, description = "2차 인증 등록")
-        return MfaRecoveryCodesDto(recoveryCodes = emptyList())
+        return MfaRecoveryCodesDto(recoveryCodes = recoveryCodes)
+    }
+
+    /** 복구 코드 재발급 — 현재 TOTP 로 재인증한다. 이전 코드는 모두 무효가 된다. */
+    @Transactional(transactionManager = "authTransactionManager")
+    fun regenerateRecoveryCodes(userId: Long, totpCode: String): MfaRecoveryCodesDto {
+        guardManageAttempts(userId)
+        if (userMfaEntityService.lockCredential(userId)?.status != MfaStatus.ACTIVE) throw MfaException(ErrorCode.MFA_NOT_ENABLED, "2차 인증이 꺼져 있습니다")
+        if (!verifyCode(userId, MfaMethod.TOTP, totpCode)) failManage(userId)
+        val recoveryCodes = issueRecoveryCodes(userId)
+        clearManageAttempts(userId)
+        auditBizService.logSafely(
+            eventType = AuditEventType.MFA_RECOVERY_CODES_REGENERATED,
+            eventCategory = AuditBizService.CATEGORY_AUTH,
+            userId = userId,
+            description = "복구 코드 재발급",
+        )
+        return MfaRecoveryCodesDto(recoveryCodes = recoveryCodes)
     }
 
     /** 해제 — 현재 코드로 재인증한다. 등록과 복구 코드를 지운다. */
@@ -108,8 +132,19 @@ class MfaBizService(
         val credential = userMfaEntityService.getCredential(userId)?.takeIf { it.status == MfaStatus.ACTIVE } ?: return false
         return when (method) {
             MfaMethod.TOTP -> matchAndMarkTotp(userId, credential.totpSecretEncrypted, code)
+            MfaMethod.RECOVERY -> userMfaEntityService.markRecoveryCodeUsed(userId, tokenHasher.hash(normalizeRecoveryCode(code)))
         }
     }
+
+    /** `XXXX-XXXX`(Base32 8자) 를 [MfaProperties.recoveryCodeCount] 개 만들어 해시로 저장하고 원본을 돌려준다. */
+    private fun issueRecoveryCodes(userId: Long): List<String> {
+        val codes = List(mfaProperties.recoveryCodeCount) { Base32.encode(ByteArray(RECOVERY_CODE_BYTES).also { random.nextBytes(it) }).chunked(4).joinToString("-") }
+        userMfaEntityService.replaceRecoveryCodes(userId, codes.map { tokenHasher.hash(normalizeRecoveryCode(it)) })
+        return codes
+    }
+
+    /** 사용자가 옮겨 적은 형식(소문자·하이픈·공백)을 저장 형식으로. */
+    private fun normalizeRecoveryCode(code: String): String = code.uppercase().filter { it.isLetterOrDigit() }
 
     private fun matchAndMarkTotp(userId: Long, encryptedSecret: String, code: String): Boolean {
         val step = Totp.matchStep(mfaSecretCipher.decrypt(userId, encryptedSecret), code, clock.instant()) ?: return false
@@ -147,6 +182,7 @@ class MfaBizService(
     companion object {
         const val MFA_ENABLED_REASON = "MFA_ENABLED"
         private const val SECRET_BYTES = 20 // RFC 4226 권장 160비트
+        private const val RECOVERY_CODE_BYTES = 5 // Base32 8자 = 40비트
         private const val MANAGE_ATTEMPT_KEY_PREFIX = "mfa:manage:attempt:"
 
         /** 증가하고, 첫 값이면 만료를 건다 — 한 스크립트라 증가와 만료 사이에 키가 영구로 남지 않는다. */

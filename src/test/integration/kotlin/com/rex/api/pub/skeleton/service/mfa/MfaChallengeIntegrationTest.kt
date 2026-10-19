@@ -119,6 +119,32 @@ class MfaChallengeIntegrationTest(
         }
     }
 
+    Given("MC-2R 같은 challenge 에 서로 다른 유효한 복구 코드 8개를 동시에 낸다") {
+        val (user, _, recoveryCodes) = enrolledUserWithRecoveryCodes()
+        val challenge = challengeFor(user, MfaOrigin.API_PASSWORD)
+
+        Then("세션은 정확히 하나만 나간다 — 코드마다 재사용 방지를 지나도 challenge 소비(DEL)는 한 번이다") {
+            val results =
+                withContext(Dispatchers.IO) {
+                    recoveryCodes.take(8).map { code ->
+                        async { runCatching { mfaChallengeBizService.complete(challenge.token, MfaOrigin.API, MfaMethod.RECOVERY, code, null) } }
+                    }.awaitAll()
+                }
+            results.count { it.isSuccess } shouldBe 1
+            userMfaEntityService.countUnusedRecoveryCodes(user.id) shouldBe 9 // 진 요청의 사용 표시는 롤백된다
+            loginAttemptBizService.getCurrentAttempts(user.loginId) shouldBe 0
+        }
+    }
+
+    Given("MC-2S 같은 복구 코드") {
+        val (user, _, recoveryCodes) = enrolledUserWithRecoveryCodes()
+
+        Then("첫 번째만 통과하고(대소문자·하이픈 무시) 두 번째는 거부한다 — DB 조건부 UPDATE") {
+            mfaBizService.verifyCode(user.id, MfaMethod.RECOVERY, recoveryCodes[0].lowercase().replace("-", "")) shouldBe true
+            mfaBizService.verifyCode(user.id, MfaMethod.RECOVERY, recoveryCodes[0]) shouldBe false
+        }
+    }
+
     Given("MC-3 API challenge 를 브라우저 완료 경로로 낸다") {
         val (user, codes) = enrolledUser()
         val challenge = challengeFor(user, MfaOrigin.API_PASSWORD)

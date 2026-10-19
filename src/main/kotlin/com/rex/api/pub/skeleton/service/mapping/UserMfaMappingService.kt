@@ -23,6 +23,9 @@ class UserMfaMappingService(
     fun activate(userId: Long, request: MfaCodeRequestDto, currentSessionId: String): MfaRecoveryCodesModel =
         MfaRecoveryCodesModel(recoveryCodes = mfaBizService.activate(userId, request.code, currentSessionId).recoveryCodes)
 
+    fun regenerateRecoveryCodes(userId: Long, request: MfaCodeRequestDto): MfaRecoveryCodesModel =
+        MfaRecoveryCodesModel(recoveryCodes = mfaBizService.regenerateRecoveryCodes(userId, request.code).recoveryCodes)
+
     fun disable(userId: Long, request: MfaVerifyRequestDto) {
         mfaBizService.disable(userId, request.method, request.code)
     }

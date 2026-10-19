@@ -39,14 +39,21 @@ class UserMfaController(
         @AuthenticationPrincipal user: AuthenticatedUser,
     ): ResponseEntity<MfaSetupModel> = ResponseEntity.ok(userMfaMappingService.setup(user.userId))
 
-    @Operation(summary = "TOTP 활성화", description = "첫 코드가 맞으면 켜고 다른 세션을 모두 폐기한다")
+    @Operation(summary = "TOTP 활성화", description = "첫 코드가 맞으면 켜고 다른 세션을 모두 폐기한다. 복구 코드 10개(원본은 이 응답에서만)")
     @PostMapping("/totp/activate")
     fun activate(
         @AuthenticationPrincipal user: AuthenticatedUser,
         @Valid @RequestBody request: MfaCodeRequestDto,
     ): ResponseEntity<MfaRecoveryCodesModel> = ResponseEntity.ok(userMfaMappingService.activate(user.userId, request, user.sessionId))
 
-    @Operation(summary = "2차 인증 해제", description = "현재 코드로 재인증한다")
+    @Operation(summary = "복구 코드 재발급", description = "현재 TOTP 로 재인증한다. 새 코드 10개(원본은 이 응답에서만) — 이전 코드는 모두 무효")
+    @PostMapping("/recovery-codes")
+    fun regenerateRecoveryCodes(
+        @AuthenticationPrincipal user: AuthenticatedUser,
+        @Valid @RequestBody request: MfaCodeRequestDto,
+    ): ResponseEntity<MfaRecoveryCodesModel> = ResponseEntity.ok(userMfaMappingService.regenerateRecoveryCodes(user.userId, request))
+
+    @Operation(summary = "2차 인증 해제", description = "현재 코드(TOTP 또는 복구 코드)로 재인증한다")
     @PostMapping("/disable")
     fun disable(
         @AuthenticationPrincipal user: AuthenticatedUser,

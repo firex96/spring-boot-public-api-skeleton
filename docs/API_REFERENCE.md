@@ -153,10 +153,11 @@ Authorization: Bearer {access_token}
 {
   "mfaToken": "q3Hc…(43자)",
   "expiresIn": 300,
-  "methods": ["totp"]
+  "methods": ["totp", "recovery"]
 }
 ```
 
+`methods` 의 `recovery` 는 남은 복구 코드가 있을 때만 있다.
 
 #### Errors
 
@@ -181,6 +182,8 @@ Authorization: Bearer {access_token}
 }
 ```
 
+복구 코드면 `"method": "recovery", "code": "ABCD-EFGH"`(대소문자·하이픈 무시, 한 번만).
+
 #### Response `200 OK`
 
 `POST /auth/login` 의 `200` 과 같은 `TokenResponseModel`.
@@ -199,10 +202,11 @@ Authorization: Bearer {access_token}
 
 | 메서드·경로 | 요청 | 응답 | 오류 |
 |---|---|---|---|
-| `GET /user/mfa` | — | `{"enabled": true, "recoveryCodesLeft": 0}` | — |
+| `GET /user/mfa` | — | `{"enabled": true, "recoveryCodesLeft": 9}` | — |
 | `POST /user/mfa/totp/setup` | — | `{"secret": "JBSW Y3DP …", "otpauthUri": "otpauth://totp/Skeleton:user1?secret=…&issuer=Skeleton&digits=6&period=30&algorithm=SHA1"}` — 아직 켜지지 않는다 | 409 `MFA003` |
-| `POST /user/mfa/totp/activate` | `{"code": "123456"}` | `{"recoveryCodes": []}` — 켜고 **다른 세션을 모두 폐기**한다 | 400 `MFA001` · 404 `MFA005` · 409 `MFA003` · 429 `MFA006` |
-| `POST /user/mfa/disable` | `{"method": "totp", "code": "123456"}` | `204` | 400 · 409 `MFA004` · 429 |
+| `POST /user/mfa/totp/activate` | `{"code": "123456"}` | `{"recoveryCodes": ["ABCD-EFGH", …(10개)]}` — 원본은 이 응답에서만. 켜고 **다른 세션을 모두 폐기**한다 | 400 `MFA001` · 404 `MFA005` · 409 `MFA003` · 429 `MFA006` |
+| `POST /user/mfa/recovery-codes` | `{"code": "123456"}`(TOTP) | `{"recoveryCodes": [… 10개]}` — 이전 코드는 모두 무효 | 400 · 409 `MFA004` · 429 |
+| `POST /user/mfa/disable` | `{"method": "totp" \| "recovery", "code": "…"}` | `204` | 400 · 409 `MFA004` · 429 |
 
 재인증은 비밀번호가 아니라 현재 코드다(소셜 전용 사용자는 비밀번호가 없다). 관리 API 의 실패는 로그인 잠금과 별개로 5번/15분 제한이다.
 

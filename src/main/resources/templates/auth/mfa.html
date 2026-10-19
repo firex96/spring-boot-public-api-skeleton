@@ -13,6 +13,8 @@
         input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccd; border-radius: 6px; font-size: 18px; letter-spacing: 4px; }
         button { width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 6px; background: #2b59c3; color: #fff; font-size: 15px; cursor: pointer; }
         .error { color: #c0392b; font-size: 14px; margin: 0 0 8px; }
+        details { margin-top: 20px; font-size: 14px; }
+        #recovery { font-size: 16px; letter-spacing: 2px; }
     </style>
 </head>
 <body>
@@ -27,6 +29,16 @@
         <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus>
         <button type="submit">확인</button>
     </form>
+    <!-- 인증 앱을 쓸 수 없으면 복구 코드(1회용) — 쓴 코드는 다시 쓸 수 없다 -->
+    <details>
+        <summary>복구 코드로 인증</summary>
+        <form method="post" th:action="@{/auth/mfa}">
+            <input type="hidden" name="method" value="recovery">
+            <label for="recovery">복구 코드</label>
+            <input id="recovery" name="code" autocomplete="off" placeholder="XXXX-XXXX" maxlength="9" required>
+            <button type="submit">복구 코드로 확인</button>
+        </form>
+    </details>
 </main>
 </body>
 </html>

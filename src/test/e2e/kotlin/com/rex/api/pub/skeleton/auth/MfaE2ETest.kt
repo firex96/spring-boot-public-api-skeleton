@@ -12,6 +12,7 @@ import com.rex.api.pub.skeleton.support.E2eResources
 import com.rex.api.pub.skeleton.support.createAndLoginUser
 import com.rex.api.pub.skeleton.support.createOAuth2TestClient
 import com.rex.api.pub.skeleton.support.enableMfa
+import com.rex.api.pub.skeleton.support.enableMfaWithRecoveryCodes
 import com.rex.api.pub.skeleton.support.getWithAuth
 import com.rex.api.pub.skeleton.support.postJson
 import com.rex.api.pub.skeleton.support.postWithAuth
@@ -173,6 +174,53 @@ class MfaE2ETest(
 
             browser.location(browser.submitCode(user.codes.next())) shouldBe "/oauth2/login?error"
             browser.location(browser.get(authorize)) shouldBe "/oauth2/login"
+        }
+    }
+
+    describe("복구 코드") {
+        it("활성화가 10개를 한 번 준다 — 2단계에 한 번만 쓰이고, 쓴 만큼 줄고, 재발급하면 이전 코드는 무효다") {
+            val user = restTemplate.createAndLoginUser(resources, "e2e_mfa_")
+            val (codes, recoveryCodes) = restTemplate.enableMfaWithRecoveryCodes(user.accessToken)
+            recoveryCodes.size shouldBe 10
+            recoveryCodes.all { Regex("^[A-Z2-7]{4}-[A-Z2-7]{4}$").matches(it) } shouldBe true
+
+            val challenge = passwordLogin(user.loginId)
+            challenge.statusCode shouldBe HttpStatus.ACCEPTED
+            @Suppress("UNCHECKED_CAST")
+            (challenge.body.shouldNotBeNull()["methods"] as List<String>) shouldBe listOf("totp", "recovery")
+            val first = recoveryCodes[0]
+            restTemplate.postJson<Map<String, Any>>(
+                "/auth/login/mfa",
+                MfaLoginRequestDto(mfaToken = challenge.body.shouldNotBeNull()["mfaToken"] as String, method = MfaMethod.RECOVERY, code = first.lowercase()),
+            ).statusCode shouldBe HttpStatus.OK
+            restTemplate.postJson<Map<String, Any>>(
+                "/auth/login/mfa",
+                MfaLoginRequestDto(mfaToken = challengeOf(user.loginId), method = MfaMethod.RECOVERY, code = first),
+            ).statusCode shouldBe HttpStatus.BAD_REQUEST
+            restTemplate.getWithAuth<Map<String, Any>>("/user/mfa", user.accessToken).body.shouldNotBeNull()["recoveryCodesLeft"] shouldBe 9
+
+            val regenerated = restTemplate.postWithAuth<Map<String, Any>>("/user/mfa/recovery-codes", user.accessToken, MfaCodeRequestDto(codes.next()))
+            regenerated.statusCode shouldBe HttpStatus.OK
+            @Suppress("UNCHECKED_CAST")
+            (regenerated.body.shouldNotBeNull()["recoveryCodes"] as List<String>).size shouldBe 10
+            restTemplate.postJson<Map<String, Any>>(
+                "/auth/login/mfa",
+                MfaLoginRequestDto(mfaToken = challengeOf(user.loginId), method = MfaMethod.RECOVERY, code = recoveryCodes[1]),
+            ).statusCode shouldBe HttpStatus.BAD_REQUEST
+        }
+
+        it("브라우저 2단계도 복구 코드로 통과하고, 복구 코드로 2차 인증을 끌 수 있다") {
+            val user = restTemplate.createAndLoginUser(resources, "e2e_mfa_")
+            val (_, recoveryCodes) = restTemplate.enableMfaWithRecoveryCodes(user.accessToken)
+            val (clientId, _) = restTemplate.createOAuth2TestClient(resources, scopes = listOf("openid"))
+            val (browser, _) = browserAtSecondStep(clientId, user.loginId)
+
+            val submitted = browser.postForm("/auth/mfa", mapOf("method" to "recovery", "code" to recoveryCodes[0], "_csrf" to browser.csrf()))
+            browser.location(submitted) shouldStartWith "/oauth2/authorize?"
+
+            restTemplate.postWithAuth<String>("/user/mfa/disable", user.accessToken, mapOf("method" to "recovery", "code" to recoveryCodes[1]))
+                .statusCode shouldBe HttpStatus.NO_CONTENT
+            passwordLogin(user.loginId).statusCode shouldBe HttpStatus.OK
         }
     }
 

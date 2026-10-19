@@ -4,6 +4,7 @@ import com.rex.api.pub.skeleton.dto.auth.UserMfaCredentialDto
 import com.rex.api.pub.skeleton.enums.auth.MfaStatus
 import com.rex.api.pub.skeleton.mapper.MfaMapper
 import com.rex.api.pub.skeleton.persistence.jpa.entity.auth.UserMfaCredentialEntity
+import com.rex.api.pub.skeleton.persistence.jpa.entity.auth.UserMfaRecoveryCodeEntity
 import com.rex.api.pub.skeleton.persistence.jpa.repository.auth.UserMfaCredentialRepository
 import com.rex.api.pub.skeleton.persistence.jpa.repository.auth.UserMfaRecoveryCodeRepository
 import org.springframework.stereotype.Service
@@ -12,7 +13,7 @@ import java.time.LocalDateTime
 import kotlin.jvm.optionals.getOrNull
 
 /**
- * 2차 인증 엔티티 서비스 — TOTP 등록의 저장·조회·사용 표시. 재사용 방지는 조건부 UPDATE 의 갱신 행 수로 판정한다.
+ * 2차 인증 엔티티 서비스 — TOTP 등록과 복구 코드의 저장·조회·사용 표시. 재사용 방지는 조건부 UPDATE 의 갱신 행 수로 판정한다.
  */
 @Service
 @Transactional(readOnly = true, transactionManager = "authTransactionManager")
@@ -63,6 +64,19 @@ class UserMfaEntityService(
     /** TOTP 구간 [step] 을 사용했다고 표시 — 이미 그 구간(또는 그 뒤)을 썼으면 false(재사용). */
     @Transactional(transactionManager = "authTransactionManager")
     fun markTotpStepUsed(userId: Long, step: Long): Boolean = credentialRepository.markStepUsed(userId, step) == 1
+
+    fun countUnusedRecoveryCodes(userId: Long): Long = recoveryCodeRepository.countByUserIdAndUsedAtIsNull(userId)
+
+    /** 복구 코드를 통째로 바꾼다 — 이전 코드(쓴 것·안 쓴 것)는 모두 무효. [codeHashes] 는 `TokenHasher.hash` 값. */
+    @Transactional(transactionManager = "authTransactionManager")
+    fun replaceRecoveryCodes(userId: Long, codeHashes: List<String>) {
+        recoveryCodeRepository.deleteAllByUserIdInBulk(userId)
+        recoveryCodeRepository.saveAll(codeHashes.map { UserMfaRecoveryCodeEntity(userId = userId, codeHash = it) })
+    }
+
+    /** 복구 코드 사용 표시 — 이 사용자의 아직 쓰지 않은 코드일 때만 true(재사용 방지). */
+    @Transactional(transactionManager = "authTransactionManager")
+    fun markRecoveryCodeUsed(userId: Long, codeHash: String): Boolean = recoveryCodeRepository.markUsed(userId, codeHash, LocalDateTime.now()) == 1
 
     /** 등록과 복구 코드를 모두 지운다 — 해제할 때. */
     @Transactional(transactionManager = "authTransactionManager")

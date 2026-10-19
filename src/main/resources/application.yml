@@ -149,6 +149,7 @@ mfa:
   issuer: Skeleton
   challenge-ttl-seconds: 300   # 1단계 통과 뒤 2단계를 마칠 때까지
   max-challenge-failures: 5    # challenge 하나에서 틀릴 수 있는 횟수
+  recovery-code-count: 10
   manage-max-failures: 5       # 등록·관리 API 코드 확인 실패 한도
   manage-lock-seconds: 900
 

@@ -475,14 +475,15 @@ interface ExternalApi {
 - 검출: `SessionIssueBizServiceTest` · `AuthBizServiceLoginProtectionTest` · `SocialAuthBizServiceLoginProtectionTest`(유닛) · `SocialBrowserLoginIntegrationTest`「로그인 보호」 · `LoginAuditE2ETest`
 
 ### 9-0a. 2차 인증 (TOTP)
-- 사용자가 스스로 켠다(`/user/mfa` — setup → activate). 수단은 TOTP(RFC 6238, HMAC-SHA1·6자리·30초, ±1 구간)뿐이고 메일 코드·기기 기억은 없다. 시크릿은 `MfaSecretCipher`(AES-256-GCM, AAD `mfa:{userId}`, 키 `mfa-secret-encryption-key`)로 암호화해 `user_mfa_credentials` 에 둔다
+- 사용자가 스스로 켠다(`/user/mfa` — setup → activate). 수단은 TOTP(RFC 6238, HMAC-SHA1·6자리·30초, ±1 구간)와 1회용 복구 코드 10개이고 메일 코드·기기 기억은 없다. 시크릿은 `MfaSecretCipher`(AES-256-GCM, AAD `mfa:{userId}`, 키 `mfa-secret-encryption-key`)로 암호화해 `user_mfa_credentials` 에 둔다
 - **켠 계정은 어느 로그인 경로로도 2단계 없이 세션을 받지 않는다** — `user_sessions` 행·토큰·브라우저 SecurityContext 는 2단계를 통과한 뒤에만 만든다. 1단계 출구 넷(`AuthBizService.login`·`loginForBrowser`, `SocialAuthBizService.socialLogin` 네이티브·콜백)은 `LoginOutcomeDto.MfaRequired` 로 challenge 만 만든다. 그래서 authorize·refresh·`/link`·`/user/**` 에는 별도 게이트가 없다
 - 대기 상태는 Redis challenge(`MfaChallengeBizService`, `mfa:challenge:{sha256(token)}`, 5분, 저장·만료는 Lua 한 번) **하나뿐**이다 — 브라우저도 세션에는 토큰 문자열만 둔다(`MfaPendingTokenStore.begin` — 토큰을 두고 세션 ID 를 바꾼다). 완료(`complete`)는 존재 → 출처(`MfaOrigin`, API 경로는 `API_*`·브라우저는 `AUTHORIZE`·`SOCIAL_BROWSER` 만) → 차단 IP·잠금(코드 보기 전) → 코드 → `DEL` 반환 1 순서다. 출처가 틀리면 challenge 를 소비하지 않는다
-- 같은 TOTP 구간은 한 번만 통과한다 — `last_used_step` 조건부 UPDATE 의 갱신 행 수(`UserMfaEntityService.markTotpStepUsed`)
+- 같은 TOTP 구간·같은 복구 코드는 한 번만 통과한다 — `last_used_step`·`used_at` 조건부 UPDATE 의 갱신 행 수(`UserMfaEntityService.markTotpStepUsed`·`markRecoveryCodeUsed`)
+- 복구 코드: activate 응답이 10개(`XXXX-XXXX`, Base32 40비트)를 한 번만 준다. 저장은 `TokenHasher.hash`(대소문자·하이픈 무시), 유일성은 `(user_id, code_hash)`. 재발급(`POST /user/mfa/recovery-codes`, TOTP 재인증)은 이전 코드를 모두 무효로 한다. 남은 코드가 있으면 challenge `methods` 에 `recovery` 가 들어간다. 해제는 복구 코드로도 된다
 - 2단계 실패는 비밀번호 실패와 **같은 계정 잠금 카운터**를 올리고(challenge 를 바꿔도 누적), 카운터는 **2단계 성공 때만** 지운다(1단계 성공은 지우지 않는다). challenge 하나에서 5번 틀리면 challenge 를 지운다(`FAIL_SCRIPT` — 키가 있을 때만 증가)
 - 등록·관리 API 의 재인증은 비밀번호가 아니라 현재 코드다(소셜 전용 사용자는 비밀번호가 없다). 실패는 로그인 잠금과 별개인 `mfa:manage:attempt:{userId}`(5회/15분, 429)로 막는다. activate 는 현재 세션을 뺀 나머지 세션을 폐기한다
 - 응답: API 1단계 `202 MfaChallengeModel{mfaToken, expiresIn, methods}` → `POST /auth/login/mfa`. 오류 `MfaException`(`MFA001`~`MFA006`, `docs/ERROR_CODES.md`)
-- 검출: `TotpTest`·`Base32Test`·`MfaSecretCipherTest`(유닛) · `MfaChallengeIntegrationTest`(재사용·동시 8건 중 1건·출처·한도·잠금 우선·1단계가 카운터를 지우지 않음) · `SocialBrowserLoginIntegrationTest`「2차 인증」 · `MfaE2ETest`
+- 검출: `TotpTest`·`Base32Test`·`MfaSecretCipherTest`(유닛) · `MfaChallengeIntegrationTest`(재사용·동시 8건 중 1건(같은 TOTP·서로 다른 복구 코드)·출처·한도·잠금 우선·1단계가 카운터를 지우지 않음) · `SocialBrowserLoginIntegrationTest`「2차 인증」 · `MfaE2ETest`
 
 ### 9-1. Session Ownership (세션 표면의 인가)
 - 세션 폐기 표면 둘(`DELETE /users/me/sessions/{sessionId}` — JWT 의 `jti`, `DELETE /user/sessions/{id}` — 행 id)은 **요청자(principal) 소유 세션만** 폐기한다 — 타인 세션은 403(`ForbiddenException`)/400, 없는 세션은 204(멱등). 경로는 `Controller → UserSelfMappingService → UserSelfBizService.revokeSessionBySessionId → UserEntityService`
