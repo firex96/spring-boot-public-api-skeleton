@@ -86,6 +86,9 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
         clearAllMocks()
         every { loginAttemptBizService.isIpBlocked(any()) } returns false
         every { loginAttemptBizService.isUserLocked(any()) } returns false
+        every { loginAttemptBizService.accountLockedException(any()) } answers {
+            AccountLockedException("계정이 잠겼습니다. ${loginAttemptBizService.getRemainingLockTime(firstArg())}초 후 다시 시도하세요")
+        }
     }
 
     Given("L-1 차단된 IP") {

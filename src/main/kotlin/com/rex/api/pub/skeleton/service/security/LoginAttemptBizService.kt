@@ -3,6 +3,7 @@ package com.rex.api.pub.skeleton.service.security
 import com.rex.api.pub.skeleton.config.security.SecurityProperties
 import com.rex.api.pub.skeleton.dto.security.BlockedIpDto
 import com.rex.api.pub.skeleton.enums.auth.BlockReason
+import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.security.BlockedIpEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
 import com.rex.api.pub.skeleton.util.logger
@@ -111,6 +112,11 @@ class LoginAttemptBizService(
     /**
      * 남은 잠금 시간 (초)
      */
+
+    /** 잠긴 계정 거절 — 남은 잠금 시간을 담는다. 로그인 경로(비밀번호·소셜·2단계)가 같은 문구를 쓴다. */
+    fun accountLockedException(username: String): AccountLockedException =
+        AccountLockedException("계정이 잠겼습니다. ${getRemainingLockTime(username)}초 후 다시 시도하세요")
+
     fun getRemainingLockTime(username: String): Long {
         val key = "$USER_LOCKED_KEY_PREFIX$username"
         return redisTemplate.getExpire(key, TimeUnit.SECONDS)

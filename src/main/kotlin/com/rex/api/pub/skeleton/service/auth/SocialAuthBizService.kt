@@ -9,10 +9,13 @@ import com.rex.api.pub.skeleton.dto.auth.UserDto
 import com.rex.api.pub.skeleton.dto.auth.UserSocialAccountDto
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.enums.auth.UserStatus
+import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
+import com.rex.api.pub.skeleton.exception.auth.ForbiddenException
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
+import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import com.rex.api.pub.skeleton.util.logger
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -32,6 +35,7 @@ class SocialAuthBizService(
     private val userEntityService: UserEntityService,
     private val userSocialAccountEntityService: UserSocialAccountEntityService,
     private val sessionIssueBizService: SessionIssueBizService,
+    private val loginAttemptBizService: LoginAttemptBizService,
     private val auditBizService: AuditBizService,
 ) {
     private val log = logger()
@@ -50,8 +54,14 @@ class SocialAuthBizService(
 
     /**
      * 소셜 로그인 — 연동된 계정만 통과한다. 실패 감사는 `noRollbackFor` 로 커밋된다(`AuthBizService.login` 과 같은 이유).
+     *
+     * 로그인 보호의 차단 IP·계정 잠금은 비밀번호 로그인과 같이 집행한다 — 잠긴 계정이 소셜로 우회하지 못하게.
+     * 소셜 검증 실패는 비밀번호 추측이 아니므로 실패 카운터를 올리지 않는다.
      */
-    @Transactional(transactionManager = "authTransactionManager", noRollbackFor = [AuthenticationException::class])
+    @Transactional(
+        transactionManager = "authTransactionManager",
+        noRollbackFor = [AuthenticationException::class, AccountLockedException::class, ForbiddenException::class],
+    )
     fun socialLogin(
         provider: SocialProvider,
         code: String,
@@ -122,6 +132,15 @@ class SocialAuthBizService(
                 reason = "비활성 사용자: ${user.status}",
             )
             throw AuthenticationException("비활성화된 계정입니다. 관리자에게 문의하세요.")
+        }
+
+        if (ipAddress != null && loginAttemptBizService.isIpBlocked(ipAddress)) {
+            auditBizService.logSocialLoginFailure(provider.name, socialUserInfo.providerId, ipAddress, deviceInfo, reason = "차단된 IP")
+            throw ForbiddenException("차단된 IP 입니다")
+        }
+        if (loginAttemptBizService.isUserLocked(user.loginId)) {
+            auditBizService.logSocialLoginFailure(provider.name, socialUserInfo.providerId, ipAddress, deviceInfo, reason = "잠긴 계정")
+            throw loginAttemptBizService.accountLockedException(user.loginId)
         }
 
         updateSocialAccountInfo(socialAccount, socialUserInfo, tokenResponse)

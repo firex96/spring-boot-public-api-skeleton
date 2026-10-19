@@ -117,9 +117,7 @@ class AuthBizService(
         }
         if (loginAttemptBizService.isUserLocked(request.loginId)) {
             auditBizService.logLoginFailure(request.loginId, ipAddress, request.deviceInfo, FAILURE_ACCOUNT_LOCKED)
-            throw AccountLockedException(
-                "계정이 잠겼습니다. ${loginAttemptBizService.getRemainingLockTime(request.loginId)}초 후 다시 시도하세요",
-            )
+            throw loginAttemptBizService.accountLockedException(request.loginId)
         }
 
         // 사용자 조회·비밀번호 검증 — 존재하지 않는 ID 도 같은 메시지·같은 기록(계정 열거 방지)

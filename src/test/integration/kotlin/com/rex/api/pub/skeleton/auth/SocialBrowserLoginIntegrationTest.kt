@@ -8,6 +8,7 @@ import com.rex.api.pub.skeleton.dto.auth.SocialUserInfo
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
+import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -26,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.ContextConfiguration
+import org.springframework.test.context.TestPropertySource
 import java.net.URI
 import java.net.URLDecoder
 import java.net.http.HttpClient
@@ -47,15 +49,21 @@ import java.util.UUID
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("testcontainers")
 @ContextConfiguration(initializers = [TestcontainersConfiguration.Initializer::class])
+// 로그인 보호(계정 잠금)를 켠다 — testcontainers 프로필은 꺼 두고, 꺼진 상태의 isUserLocked 는 항상 false 다. IP 차단은 꺼 둔 채로 둔다
+@TestPropertySource(properties = ["security.login-protection.enable-brute-force-protection=true"])
 class SocialBrowserLoginIntegrationTest(
     @LocalServerPort private val port: Int,
     private val userEntityService: UserEntityService,
     private val userSocialAccountEntityService: UserSocialAccountEntityService,
+    private val loginAttemptBizService: LoginAttemptBizService,
 ) : DescribeSpec() {
     @MockkBean
     lateinit var googleClient: GoogleOAuth2Client
 
     private val http: HttpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build()
+
+    /** 연동된 계정의 로그인 ID — 잠금 검증에 쓴다. */
+    private lateinit var linkedLoginId: String
 
     private fun url(path: String) = URI.create("http://localhost:$port$path")
 
@@ -125,9 +133,10 @@ class SocialBrowserLoginIntegrationTest(
 
     init {
         beforeSpec {
+            linkedLoginId = "it_social_${UUID.randomUUID().toString().take(8)}"
             val user =
                 userEntityService.createUser(
-                    loginId = "it_social_${UUID.randomUUID().toString().take(8)}",
+                    loginId = linkedLoginId,
                     passwordHash = "{noop}unused",
                     email = null,
                     name = null,
@@ -273,7 +282,34 @@ class SocialBrowserLoginIntegrationTest(
                 responses.count { it.statusCode() == 200 } shouldBe 1
             }
         }
+
+        describe("로그인 보호 — 잠긴 계정은 소셜로도 로그인하지 못한다") {
+            it("비밀번호 실패로 잠긴 계정의 콜백·네이티브 코드 교환은 423 이고, 잠금을 풀면 다시 된다") {
+                every { googleClient.getUserInfo(any()) } returns
+                    SocialUserInfo(provider = SocialProvider.GOOGLE, providerId = LINKED_PROVIDER_ID, email = null, name = null, profileImage = null)
+                repeat(5) { loginAttemptBizService.recordFailedAttempt(linkedLoginId, null) }
+                loginAttemptBizService.isUserLocked(linkedLoginId) shouldBe true
+                try {
+                    val (cookie, state) = startAuthorization()
+                    callbackWithState(cookie, "google", state).statusCode() shouldBe 423
+
+                    nativeLogin().statusCode() shouldBe 423
+                } finally {
+                    loginAttemptBizService.unlockUserAccount(linkedLoginId)
+                }
+                nativeLogin().statusCode() shouldBe 200
+            }
+        }
     }
+
+    private fun nativeLogin(): HttpResponse<String> =
+        http.send(
+            HttpRequest.newBuilder(url("/auth/oauth2/google/login"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""{"code":"provider-code"}"""))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
 
     companion object {
         private const val LINKED_PROVIDER_ID = "linked-google-id"

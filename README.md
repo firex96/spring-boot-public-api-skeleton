@@ -320,7 +320,7 @@ docker compose up -d
 
 - `X-Forwarded-For` 스푸핑 방지 — 신뢰할 수 있는 프록시만 허용
 - 로그인/로그아웃·비밀번호 변경 추적, 의심 활동 탐지, IP 차단
-- 로그인 시도 제한 — IP 기반 · 사용자 기반 · 자동 계정 잠금. **집행 지점은 `AuthBizService.login`** — 차단 IP·잠긴 계정은 비밀번호를 보기 전에 거절(`403`/`423 AUTH001`), 실패는 `LoginAttemptBizService.recordFailedAttempt` 로 기록(`noRollbackFor` 로 실패 뒤에도 커밋), 성공 시 카운터 초기화. e2e `LoginProtectionE2ETest` · 유닛 `AuthBizServiceLoginProtectionTest`
+- 로그인 시도 제한 — IP 기반 · 사용자 기반 · 자동 계정 잠금. **집행 지점은 `AuthBizService.login`** — 차단 IP·잠긴 계정은 비밀번호를 보기 전에 거절(`403`/`423 AUTH001`), 실패는 `LoginAttemptBizService.recordFailedAttempt` 로 기록(`noRollbackFor` 로 실패 뒤에도 커밋), 성공 시 카운터 초기화. 소셜 로그인(`SocialAuthBizService.socialLogin`)도 차단 IP·잠긴 계정을 같이 거절한다(소셜 검증 실패는 카운터에 넣지 않는다). e2e `LoginProtectionE2ETest` · 유닛 `AuthBizServiceLoginProtectionTest`·`SocialAuthBizServiceLoginProtectionTest` · 통합 `SocialBrowserLoginIntegrationTest`
 
 ## 데이터베이스
 
