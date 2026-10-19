@@ -216,7 +216,7 @@ curl -X POST https://api.example.com/auth/logout \
 
 ### POST /auth/password/change
 
-비밀번호 변경
+비밀번호 변경 — 성공하면 **현재 세션을 포함한 모든 세션**을 폐기한다(다시 로그인해야 한다).
 
 **인증 필요**
 
@@ -566,7 +566,7 @@ OAuth Provider로부터의 콜백을 처리합니다. state 를 먼저 소비하
 
 ### POST /user/password/change
 
-비밀번호 변경
+비밀번호 변경 — 성공하면 **이 요청의 세션을 뺀** 나머지 세션을 폐기한다(다른 기기는 다시 로그인해야 하고, 이 기기는 계속 쓴다).
 
 **인증 필요**
 

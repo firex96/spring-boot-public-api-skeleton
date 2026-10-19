@@ -88,7 +88,7 @@ class UserSelfServiceController(
         httpRequest: HttpServletRequest,
     ): ResponseEntity<ResultResponseModel> {
         val ipAddress = clientIpResolver.resolve(httpRequest)
-        val success = mappingService.changePassword(user.userId, request, ipAddress)
+        val success = mappingService.changePassword(user.userId, request, ipAddress, user.sessionId)
         return if (success) {
             ResponseEntity.ok(ResultResponseModel(true, "비밀번호가 변경되었습니다"))
         } else {

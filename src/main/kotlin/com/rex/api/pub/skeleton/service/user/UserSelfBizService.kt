@@ -15,6 +15,7 @@ import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSessionEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
 import com.rex.api.pub.skeleton.service.auth.SessionCacheBizService
+import com.rex.api.pub.skeleton.service.auth.UserSessionRevocationBizService
 import com.rex.api.pub.skeleton.service.notification.MailSender
 import com.rex.api.pub.skeleton.util.TokenHasher
 import com.rex.api.pub.skeleton.util.logger
@@ -38,6 +39,7 @@ class UserSelfBizService(
     private val auditBizService: AuditBizService,
     private val tokenHasher: TokenHasher,
     private val mailSender: MailSender,
+    private val userSessionRevocationBizService: UserSessionRevocationBizService,
 ) {
     private val log = logger()
 
@@ -46,6 +48,7 @@ class UserSelfBizService(
         private const val EMAIL_VERIFICATION_TOKEN_VALIDITY_HOURS = 48L
         const val PASSWORD_RESET_MAIL_SUBJECT = "[Public API Skeleton] 비밀번호 재설정"
         const val EMAIL_VERIFICATION_MAIL_SUBJECT = "[Public API Skeleton] 이메일 인증"
+        const val PASSWORD_CHANGED_REASON = "PASSWORD_CHANGED"
     }
 
     // ===== 비밀번호 재설정 =====
@@ -112,8 +115,14 @@ class UserSelfBizService(
         return true
     }
 
+    /**
+     * 비밀번호 변경 — 성공하면 **현재 세션을 뺀** 나머지 세션을 폐기한다. 탈취된 다른 세션은 끊기고, 방금 바꾼 기기는 계속 쓴다.
+     *
+     * 폐기 규칙은 `UserSessionRevocationBizService` 가 정본이다.
+     * `/auth/password/change` 는 현재 세션까지 모두 폐기한다 — 두 경로의 차이는 README 「인증과 인가」.
+     */
     @Transactional(transactionManager = "authTransactionManager")
-    fun changePassword(userId: Long, request: PasswordChangeDto, ipAddress: String?): Boolean {
+    fun changePassword(userId: Long, request: PasswordChangeDto, ipAddress: String?, currentSessionId: String): Boolean {
         val user = userEntityService.getUserById(userId)
             ?: throw ResourceNotFoundException("사용자를 찾을 수 없습니다")
 
@@ -124,6 +133,8 @@ class UserSelfBizService(
 
         // 비밀번호 변경
         userEntityService.updatePassword(userId, encodePassword(request.newPassword))
+
+        userSessionRevocationBizService.revokeAll(userId, PASSWORD_CHANGED_REASON, exceptSessionId = currentSessionId)
 
         auditBizService.logPasswordChange(userId, user.loginId, ipAddress)
 

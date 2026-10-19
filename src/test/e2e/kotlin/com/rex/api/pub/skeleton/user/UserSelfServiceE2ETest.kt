@@ -156,6 +156,26 @@ class UserSelfServiceE2ETest(
             }
         }
 
+        context("다른 기기에도 로그인한 상태에서 변경") {
+            it("다른 기기의 토큰은 401, 변경한 기기의 토큰은 계속 200 — 예전에는 세션을 하나도 폐기하지 않았다") {
+                val loginId = uniqueLoginId()
+                val oldPassword = "Test@1234!"
+                val (deviceA, _) = createAndLoginUser(loginId = loginId, password = oldPassword)
+                val deviceB =
+                    restTemplate.postJson<TokenResponseDto>("/auth/login", LoginRequestDto(loginId = loginId, password = oldPassword))
+                        .body.shouldNotBeNull().accessToken
+
+                restTemplate.postWithAuth<Map<String, Any>>(
+                    "/user/password/change",
+                    deviceA,
+                    PasswordChangeDto(currentPassword = oldPassword, newPassword = "NewTest@5678!"),
+                ).statusCode shouldBe HttpStatus.OK
+
+                restTemplate.getWithAuth<String>("/user/profile", deviceB).statusCode shouldBe HttpStatus.UNAUTHORIZED
+                restTemplate.getWithAuth<String>("/user/profile", deviceA).statusCode shouldBe HttpStatus.OK
+            }
+        }
+
         context("잘못된 현재 비밀번호로 변경 요청") {
             it("400 Bad Request를 반환한다") {
                 // given

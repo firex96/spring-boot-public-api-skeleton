@@ -41,6 +41,7 @@ class UserSelfBizServiceMailTest : BehaviorSpec({
                 auditBizService = mockk<AuditBizService>(relaxed = true),
                 tokenHasher = tokenHasher,
                 mailSender = mailSender,
+                userSessionRevocationBizService = mockk(relaxed = true),
             )
         val user =
             UserDto(

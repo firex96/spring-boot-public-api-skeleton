@@ -40,6 +40,7 @@ class UserSelfBizServiceSessionTest : BehaviorSpec({
                 auditBizService = mockk<AuditBizService>(relaxed = true),
                 tokenHasher = mockk<TokenHasher>(relaxed = true),
                 mailSender = mockk<MailSender>(relaxed = true),
+                userSessionRevocationBizService = mockk(relaxed = true),
             )
     }
 

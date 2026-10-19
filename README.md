@@ -308,7 +308,7 @@ docker compose up -d
 
 **소셜 로그인** — Google · Kakao · Naver. `application.yml` 의 `oauth2` 주석에서 켤 provider 만 푼다. 브라우저는 `GET /auth/oauth2/{provider}/authorize` 로 이동한다 — 서버가 state 를 그 브라우저 세션(`SKELETON_SESSION`)에 묶어 발급하고, 콜백은 state 를 먼저 소비해 다른 세션·재사용·만료면 `invalid_state` 로 끝낸다. 브라우저 흐름만 세션·CSRF 를 쓰고 나머지 API 는 STATELESS·Bearer 다(CLAUDE.md 「9-3」).
 
-**권한** — 그룹 기반 RBAC + Permission 기반 접근 제어. 세션 폐기는 **요청자 소유 세션만**(타인 403). 401·403 본문은 OAuth2 프로토콜 엔드포인트(RFC 6749 형식)와 인가 서버 로그인·동의 화면의 오류(HTML)를 빼고 모두 `ErrorResponseModel` 이다 — 필터 체인 거부와 `@PreAuthorize` 거부가 같은 형식이다(`docs/ERROR_CODES.md`).
+**권한** — 그룹 기반 RBAC + Permission 기반 접근 제어. 세션 폐기는 **요청자 소유 세션만**(타인 403). 비밀번호를 바꾸면 세션을 폐기한다 — `/auth/password/change` 는 현재 세션까지 모두, `/user/password/change` 는 요청한 세션만 남기고 나머지를. 401·403 본문은 OAuth2 프로토콜 엔드포인트(RFC 6749 형식)와 인가 서버 로그인·동의 화면의 오류(HTML)를 빼고 모두 `ErrorResponseModel` 이다 — 필터 체인 거부와 `@PreAuthorize` 거부가 같은 형식이다(`docs/ERROR_CODES.md`).
 
 **메일** — `MailSender` 포트 하나. 기본은 로깅 구현(수신자 마스킹·제목만 — 본문은 어디서도 로그에 남기지 않는다), `local` 은 소유자 전용 파일 수신함(`~/.skeleton/demo-mailbox/<수신자>.txt`), `e2e` 는 인메모리 수신함 빈으로 토큰을 받는다(HTTP 로 열지 않는다). 실제 발송 어댑터는 파생 프로젝트가 `@Primary` 빈으로 붙인다. 비밀번호 재설정·이메일 인증 토큰은 메일로만 나간다.
 

@@ -34,8 +34,8 @@ class UserSelfMappingService(
     fun resetPassword(token: String, newPassword: String): Boolean =
         userSelfBizService.resetPassword(token, newPassword)
 
-    fun changePassword(userId: Long, request: PasswordChangeDto, ipAddress: String): Boolean =
-        userSelfBizService.changePassword(userId, request, ipAddress)
+    fun changePassword(userId: Long, request: PasswordChangeDto, ipAddress: String?, currentSessionId: String): Boolean =
+        userSelfBizService.changePassword(userId, request, ipAddress, currentSessionId)
 
     // ===== 이메일 인증 =====
 
