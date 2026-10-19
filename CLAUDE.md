@@ -469,7 +469,8 @@ interface ExternalApi {
 - 1st-party 세션(`user_sessions` 행·access/refresh 토큰·세션 캐시)은 **`SessionIssueBizService.issue` 한 곳에서만** 만든다 — 비밀번호(`AuthBizService.login`)·소셜(`SocialAuthBizService.socialLogin`) 모두. 인증 판단(비밀번호 비교·소셜 검증·로그인 보호)은 호출자가 끝낸 뒤에 부른다
 - 세션 일괄 폐기는 `UserSessionRevocationBizService.revokeAll(userId, reason, exceptSessionId)` 한 곳이다 — 호출자는 사유와 남길 세션만 정한다
 - `AuthBizService.verifyPassword` 는 로그인 보호(차단 IP·잠금·실패 기록)를 집행하고 확인된 사용자만 돌려준다. **성공해도 실패 카운터를 지우지 않는다** — 호출자가 인증이 최종적으로 끝난 지점에서 `clearAttempts` 를 부른다
-- 검출: `SessionIssueBizServiceTest` · `AuthBizServiceLoginProtectionTest`(유닛)
+- 비밀번호 로그인은 감사를 남긴다 — 실패는 `LOGIN_FAILURE`(사유 `BLOCKED_IP`·`ACCOUNT_LOCKED`·`INVALID_CREDENTIALS`, 사용자 ID 없음, `noRollbackFor` 로 커밋), 성공은 세션을 만든 뒤 `LOGIN_SUCCESS`(세션 ID 포함)
+- 검출: `SessionIssueBizServiceTest` · `AuthBizServiceLoginProtectionTest`(유닛) · `LoginAuditE2ETest`
 
 ### 9-1. Session Ownership (세션 표면의 인가)
 - 세션 폐기 표면 둘(`DELETE /users/me/sessions/{sessionId}` — JWT 의 `jti`, `DELETE /user/sessions/{id}` — 행 id)은 **요청자(principal) 소유 세션만** 폐기한다 — 타인 세션은 403(`ForbiddenException`)/400, 없는 세션은 204(멱등). 경로는 `Controller → UserSelfMappingService → UserSelfBizService.revokeSessionBySessionId → UserEntityService`

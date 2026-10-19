@@ -17,6 +17,7 @@ import com.rex.api.pub.skeleton.persistence.jpa.service.auth.RoleEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserGroupEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSessionEntityService
+import com.rex.api.pub.skeleton.service.audit.AuditBizService
 import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import com.rex.api.pub.skeleton.util.logger
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -38,6 +39,7 @@ class AuthBizService(
     private val passwordEncoder: PasswordEncoder,
     private val loginAttemptBizService: LoginAttemptBizService,
     private val sessionIssueBizService: SessionIssueBizService,
+    private val auditBizService: AuditBizService,
     private val userSessionRevocationBizService: UserSessionRevocationBizService,
 ) {
     private val log = logger()
@@ -92,14 +94,16 @@ class AuthBizService(
     ): TokenResponseDto {
         val user = verifyPassword(request, ipAddress)
         loginAttemptBizService.clearAttempts(request.loginId, ipAddress)
-        return sessionIssueBizService.issue(user, request.deviceType, request.deviceInfo, ipAddress).tokens
+        val issued = sessionIssueBizService.issue(user, request.deviceType, request.deviceInfo, ipAddress)
+        auditBizService.logLoginSuccess(user.id, user.loginId, ipAddress, request.deviceInfo, issued.sessionId)
+        return issued.tokens
     }
 
     /**
      * 비밀번호 확인 — 로그인 보호(차단 IP·계정 잠금·실패 기록)를 집행하고 확인된 사용자를 돌려준다.
      *
-     * 성공해도 실패 카운터를 지우지 않는다 — 호출자가 인증이 **최종적으로** 끝난 지점에서 지운다.
-     * 실패 기록은 호출자 트랜잭션에 참여하므로 호출자가 `noRollbackFor` 를 둔다([login] 참고).
+     * 성공해도 실패 카운터를 지우지 않는다 — 호출자가 인증이 **최종적으로** 끝난 지점에서 지운다. 성공 감사도 호출자가 세션을 만든 뒤 남긴다.
+     * 실패 기록·실패 감사는 호출자 트랜잭션에 참여하므로 호출자가 `noRollbackFor` 를 둔다([login] 참고).
      */
     fun verifyPassword(
         request: LoginRequestDto,
@@ -108,9 +112,11 @@ class AuthBizService(
         // 로그인 보호 — 차단 IP · 잠긴 계정은 비밀번호를 보기 전에 거절한다.
         // IP 를 모르면(프록시 헤더 불신 등) IP 보호는 건너뛴다 — 공유 버킷에 모으면 임계에서 그 값이 차단돼 IP 없는 로그인이 전부 막힌다
         if (ipAddress != null && loginAttemptBizService.isIpBlocked(ipAddress)) {
+            auditBizService.logLoginFailure(request.loginId, ipAddress, request.deviceInfo, FAILURE_BLOCKED_IP)
             throw ForbiddenException("차단된 IP 입니다")
         }
         if (loginAttemptBizService.isUserLocked(request.loginId)) {
+            auditBizService.logLoginFailure(request.loginId, ipAddress, request.deviceInfo, FAILURE_ACCOUNT_LOCKED)
             throw AccountLockedException(
                 "계정이 잠겼습니다. ${loginAttemptBizService.getRemainingLockTime(request.loginId)}초 후 다시 시도하세요",
             )
@@ -121,6 +127,7 @@ class AuthBizService(
         if (user == null || user.passwordHash == null || !passwordEncoder.matches(request.password, user.passwordHash)) {
             // 실패 기록 — 임계 도달 시 계정 잠금(Redis)·IP 자동 차단(DB). 호출자의 noRollbackFor 로 예외 뒤에도 커밋된다
             loginAttemptBizService.recordFailedAttempt(request.loginId, ipAddress)
+            auditBizService.logLoginFailure(request.loginId, ipAddress, request.deviceInfo, FAILURE_INVALID_CREDENTIALS)
             throw AuthenticationException("아이디 또는 비밀번호가 올바르지 않습니다")
         }
         return user
@@ -245,4 +252,11 @@ class AuthBizService(
 
     private fun encodePassword(raw: String): String =
         passwordEncoder.encode(raw) ?: throw IllegalStateException("PasswordEncoder 가 null 을 반환했다")
+
+    companion object {
+        /** 로그인 실패 감사의 사유 — `audit_logs.failure_reason`. 사용자에게 내보내는 메시지와 별개다(계정 열거 방지). */
+        const val FAILURE_BLOCKED_IP = "BLOCKED_IP"
+        const val FAILURE_ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
+        const val FAILURE_INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
+    }
 }

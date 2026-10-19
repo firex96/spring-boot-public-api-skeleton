@@ -12,6 +12,7 @@ import com.rex.api.pub.skeleton.persistence.jpa.service.auth.RoleEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserGroupEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSessionEntityService
+import com.rex.api.pub.skeleton.service.audit.AuditBizService
 import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.BehaviorSpec
@@ -25,9 +26,9 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import java.time.LocalDateTime
 
 /**
- * `AuthBizService.login` 의 로그인 보호 집행 — 차단 IP·잠긴 계정 거절, 실패 기록, 성공 시 초기화.
+ * `AuthBizService.login` 의 로그인 보호 집행 — 차단 IP·잠긴 계정 거절, 실패 기록, 성공 시 초기화, 성공·실패 감사.
  *
- * 연결이 끊기면(호출 줄 삭제) L-1~L-6 이 실패한다. HTTP 경로(423 `AUTH001`, 관리자 조회·해제)는 e2e `LoginProtectionE2ETest`.
+ * 연결이 끊기면(호출 줄 삭제) L-1~L-7 이 실패한다. HTTP 경로(423 `AUTH001`, 관리자 조회·해제)는 e2e `LoginProtectionE2ETest`.
  * IP 차단 경로는 e2e 에서 꺼 두므로(스위트가 자기 IP 를 차단한다) L-1 이 유일한 고정점이다.
  */
 class AuthBizServiceLoginProtectionTest : BehaviorSpec({
@@ -40,6 +41,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
     val passwordEncoder = mockk<PasswordEncoder>()
     val loginAttemptBizService = mockk<LoginAttemptBizService>(relaxUnitFun = true)
     val sessionIssueBizService = mockk<SessionIssueBizService>()
+    val auditBizService = mockk<AuditBizService>(relaxUnitFun = true)
 
     val authBizService =
         AuthBizService(
@@ -52,6 +54,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             passwordEncoder,
             loginAttemptBizService,
             sessionIssueBizService,
+            auditBizService,
             mockk<UserSessionRevocationBizService>(),
         )
 
@@ -93,6 +96,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             verify(exactly = 0) { userEntityService.getActiveUserByLoginId(any()) }
             verify(exactly = 0) { passwordEncoder.matches(any(), any()) }
             verify(exactly = 0) { loginAttemptBizService.recordFailedAttempt(any(), any()) }
+            verify(exactly = 1) { auditBizService.logLoginFailure("user1", ip, null, AuthBizService.FAILURE_BLOCKED_IP) }
         }
     }
 
@@ -105,6 +109,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             ex.message shouldContain "900초"
             verify(exactly = 0) { userEntityService.getActiveUserByLoginId(any()) }
             verify(exactly = 0) { passwordEncoder.matches(any(), any()) }
+            verify(exactly = 1) { auditBizService.logLoginFailure("user1", ip, null, AuthBizService.FAILURE_ACCOUNT_LOCKED) }
         }
     }
 
@@ -115,6 +120,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             shouldThrow<AuthenticationException> { authBizService.login(request, ip) }
             verify(exactly = 1) { loginAttemptBizService.recordFailedAttempt("user1", ip) }
             verify(exactly = 0) { loginAttemptBizService.clearAttempts(any(), any()) }
+            verify(exactly = 1) { auditBizService.logLoginFailure("user1", ip, null, AuthBizService.FAILURE_INVALID_CREDENTIALS) }
         }
     }
 
@@ -126,6 +132,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             shouldThrow<AuthenticationException> { authBizService.login(request, ip) }
             verify(exactly = 1) { loginAttemptBizService.recordFailedAttempt("user1", ip) }
             verify(exactly = 0) { loginAttemptBizService.clearAttempts(any(), any()) }
+            verify(exactly = 1) { auditBizService.logLoginFailure("user1", ip, null, AuthBizService.FAILURE_INVALID_CREDENTIALS) }
         }
     }
 
@@ -141,6 +148,8 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             tokens.refreshToken shouldBe "refresh-token"
             verify(exactly = 1) { loginAttemptBizService.clearAttempts("user1", ip) }
             verify(exactly = 0) { loginAttemptBizService.recordFailedAttempt(any(), any()) }
+            verify(exactly = 1) { auditBizService.logLoginSuccess(7L, "user1", ip, null, "session-1") }
+            verify(exactly = 0) { auditBizService.logLoginFailure(any(), any(), any(), any()) }
         }
     }
 
