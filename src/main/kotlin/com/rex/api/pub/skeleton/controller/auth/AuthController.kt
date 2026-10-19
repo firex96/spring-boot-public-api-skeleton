@@ -1,8 +1,10 @@
 package com.rex.api.pub.skeleton.controller.auth
 
 import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
+import com.rex.api.pub.skeleton.controller.auth.support.toResponseEntity
 import com.rex.api.pub.skeleton.dto.auth.ChangePasswordRequestDto
 import com.rex.api.pub.skeleton.dto.auth.LoginRequestDto
+import com.rex.api.pub.skeleton.dto.auth.MfaLoginRequestDto
 import com.rex.api.pub.skeleton.dto.auth.RefreshTokenRequestDto
 import com.rex.api.pub.skeleton.dto.auth.SignupRequestDto
 import com.rex.api.pub.skeleton.model.auth.AccessTokenResponseModel
@@ -41,16 +43,22 @@ class AuthController(
         return ResponseEntity.status(HttpStatus.CREATED).body(user)
     }
 
-    @Operation(summary = "로그인")
+    @Operation(
+        summary = "로그인",
+        description = "200 TokenResponseModel. 2차 인증을 켠 계정은 202 MfaChallengeModel — mfaToken 과 코드로 POST /auth/login/mfa",
+    )
     @PostMapping("/login")
     fun login(
         @Valid @RequestBody request: LoginRequestDto,
         httpRequest: HttpServletRequest,
-    ): ResponseEntity<TokenResponseModel> {
-        val ipAddress = clientIpResolver.resolve(httpRequest)
-        val tokens = authMappingService.login(request, ipAddress)
-        return ResponseEntity.ok(tokens)
-    }
+    ): ResponseEntity<Any> = authMappingService.login(request, clientIpResolver.resolve(httpRequest)).toResponseEntity()
+
+    @Operation(summary = "로그인 2단계", description = "202 로 받은 mfaToken 과 TOTP 코드 — 비밀번호·네이티브 소셜 로그인 공통")
+    @PostMapping("/login/mfa")
+    fun completeMfa(
+        @Valid @RequestBody request: MfaLoginRequestDto,
+        httpRequest: HttpServletRequest,
+    ): ResponseEntity<TokenResponseModel> = ResponseEntity.ok(authMappingService.completeMfa(request, clientIpResolver.resolve(httpRequest)))
 
     @Operation(summary = "로그아웃")
     @PostMapping("/logout")

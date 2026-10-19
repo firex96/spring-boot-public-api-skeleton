@@ -47,6 +47,7 @@ class AzureKeyVaultProfileIntegrationTest : StringSpec({
             "redis-password" to "redis-from-azure",
             "core-api-url" to "http://core.example.internal",
             "jwt-secret" to "jwt-secret-from-azure-must-be-at-least-32-chars",
+            "mfa-secret-encryption-key" to "mfa-key-from-azure",
             "oidc-issuer" to "https://auth.example.internal",
             "oauth2-redirect-base-url" to "https://api.example.internal",
         ).forEach { (name, value) -> secretClient.setSecret(name, value) }
@@ -70,6 +71,7 @@ class AzureKeyVaultProfileIntegrationTest : StringSpec({
                 env.getProperty("app.client.destinations.core.url") shouldBe "http://core.example.internal"
                 env.getProperty("app.flyway.mysql.password") shouldBe "admin-from-azure"
                 env.getProperty("jwt.secret") shouldBe "jwt-secret-from-azure-must-be-at-least-32-chars"
+                env.getProperty("mfa.secret-encryption-key") shouldBe "mfa-key-from-azure"
                 env.getProperty("oidc.issuer") shouldBe "https://auth.example.internal"
             }
     }

@@ -7,6 +7,7 @@
 - [Phase 1: 기본 인증 (MVP)](#phase-1-기본-인증-mvp)
   - [1.1 회원가입](#11-회원가입)
   - [1.2 로그인](#12-로그인)
+  - [1.2a 로그인 2단계 (2차 인증)](#12a-로그인-2단계-2차-인증)
   - [1.3 토큰 갱신](#13-토큰-갱신)
   - [1.4 로그아웃](#14-로그아웃)
   - [1.5 API 요청 인증](#15-api-요청-인증)
@@ -187,6 +188,49 @@ sequenceDiagram
     AuthMappingService-->>AuthController: TokenModel
     AuthController-->>Client: 200 OK<br/>{accessToken, refreshToken, expiresIn}
 ```
+
+### 1.2a 로그인 2단계 (2차 인증)
+
+2차 인증을 켠 계정은 1단계(비밀번호·소셜)를 통과해도 **세션을 만들지 않는다**. 대기 상태는 Redis challenge 하나뿐이다(API·브라우저 공통). 브라우저는 세션에 challenge 토큰 문자열만 두고 `/auth/mfa` 화면을 거친다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client
+    participant AuthController
+    participant AuthBizService
+    participant MfaChallengeBizService
+    participant MfaBizService
+    participant LoginAttemptBizService
+    participant LoginCompletionBizService
+    participant Redis
+    participant DB
+
+    Client->>AuthController: POST /auth/login {loginId, password}
+    AuthController->>AuthBizService: login → verifyPassword (차단·잠금·실패 기록)
+    Note over AuthBizService: 1단계 성공 — 실패 카운터는 지우지 않는다
+    AuthBizService->>MfaChallengeBizService: afterFirstFactor(user, API_PASSWORD) — 1단계 출구의 관문
+    MfaChallengeBizService->>MfaBizService: isEnabled(userId) = true (꺼져 있으면 바로 LoginCompletionBizService)
+    MfaChallengeBizService->>Redis: SAVE_SCRIPT — HSET mfa:challenge:{sha256(token)} + EXPIRE 300초
+    AuthController-->>Client: 202 {mfaToken, expiresIn, methods}
+
+    Client->>AuthController: POST /auth/login/mfa {mfaToken, method, code}
+    AuthController->>MfaChallengeBizService: complete(token, {API_PASSWORD, API_SOCIAL}, …)
+    MfaChallengeBizService->>Redis: HGETALL (없으면 401 MFA002)
+    Note over MfaChallengeBizService: 출처 확인 → 차단 IP·계정 잠금(코드 보기 전)
+    MfaChallengeBizService->>MfaBizService: verifyCode
+    MfaBizService->>DB: UPDATE … SET last_used_step=:s WHERE last_used_step < :s
+    alt 코드 불일치
+        MfaChallengeBizService->>Redis: FAIL_SCRIPT (실패 수 +1, 한도면 DEL)
+        MfaChallengeBizService->>LoginAttemptBizService: recordFailedAttempt (계정 잠금 공유)
+        AuthController-->>Client: 400 MFA001 (잠기면 423)
+    end
+    MfaChallengeBizService->>Redis: DEL — 반환 1 인 요청만 계속(1회 소비)
+    MfaChallengeBizService->>LoginCompletionBizService: complete(user, clearAttempts=true) — 카운터 정리·세션 발급·성공 감사
+    AuthController-->>Client: 200 {accessToken, refreshToken}
+```
+
+브라우저: `POST /oauth2/login`(또는 소셜 콜백)이 challenge 를 만들면 `MfaPendingTokenStore.begin` 이 토큰을 두고 세션 ID 를 바꾼 뒤 `302 /auth/mfa`. `POST /auth/mfa`(CSRF)가 `complete(token, {AUTHORIZE, SOCIAL_BROWSER}, …)` 를 지나면 그때 브라우저 세션에 로그인시키고, 인가 서버 출처는 기다리던 authorize 로, 소셜 출처는 토큰을 교환 대기에 맡긴 뒤 `/demo/auth/callback` 으로 보낸다. 2단계 전에는 SecurityContext 가 없어 `/oauth2/authorize` 는 로그인 화면으로 보낸다.
 
 ### 1.3 토큰 갱신
 

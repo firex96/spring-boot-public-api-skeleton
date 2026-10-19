@@ -1,11 +1,14 @@
 package com.rex.api.pub.skeleton.service.mapping
 
+import com.rex.api.pub.skeleton.dto.auth.LoginOutcomeDto
+import com.rex.api.pub.skeleton.enums.auth.MfaOrigin
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.mapper.AuthMapper
+import com.rex.api.pub.skeleton.mapper.MfaMapper
 import com.rex.api.pub.skeleton.mapper.SocialAuthMapper
-import com.rex.api.pub.skeleton.model.auth.BrowserPrincipalModel
+import com.rex.api.pub.skeleton.model.auth.BrowserLoginOutcomeModel
+import com.rex.api.pub.skeleton.model.auth.LoginOutcomeModel
 import com.rex.api.pub.skeleton.model.auth.SocialAccountModel
-import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
 import com.rex.api.pub.skeleton.service.auth.AuthBizService
 import com.rex.api.pub.skeleton.service.auth.SocialAuthBizService
 import com.rex.api.pub.skeleton.service.auth.SocialAuthorizationStateBizService
@@ -21,6 +24,7 @@ class SocialAuthMappingService(
     private val socialAuthorizationStateBizService: SocialAuthorizationStateBizService,
     private val authBizService: AuthBizService,
     private val tokenHandoffBizService: TokenHandoffBizService,
+    private val mfaMapper: MfaMapper,
 ) {
     /** 브라우저 세션에 묶인 state 를 발급하고 provider 인가 URL 을 돌려준다. */
     fun issueAuthorizationRedirect(provider: SocialProvider, browserSessionId: String): String =
@@ -37,24 +41,30 @@ class SocialAuthMappingService(
         deviceType: String?,
         deviceInfo: String?,
         ipAddress: String?,
-    ): TokenResponseModel =
-        authMapper.toTokenResponseModel(
-            socialAuthBizService.socialLogin(
-                provider = provider,
-                code = code,
-                state = null,
-                deviceType = deviceType,
-                deviceInfo = deviceInfo,
-                ipAddress = ipAddress,
-            ),
-        )
+    ): LoginOutcomeModel =
+        when (
+            val outcome =
+                socialAuthBizService.socialLogin(
+                    provider = provider,
+                    code = code,
+                    state = null,
+                    deviceType = deviceType,
+                    deviceInfo = deviceInfo,
+                    ipAddress = ipAddress,
+                    origin = MfaOrigin.API_SOCIAL,
+                )
+        ) {
+            is LoginOutcomeDto.Tokens -> LoginOutcomeModel.Tokens(authMapper.toTokenResponseModel(outcome.session.tokens))
+            is LoginOutcomeDto.MfaRequired -> LoginOutcomeModel.MfaRequired(mfaMapper.toMfaChallengeModel(outcome.challenge))
+        }
 
     /**
      * 브라우저 콜백의 소셜 로그인 — 토큰은 반환하지 않고 교환 대기(`TokenHandoffBizService`)에 맡긴다.
      * 돌려주는 principal 은 컨트롤러가 브라우저 세션에 로그인시킨다. 페이지는 `POST /auth/session/token` 으로 토큰을 받는다.
+     * 2차 인증 대상이면 아무것도 맡기지 않고 challenge 토큰만 돌려준다 — 토큰은 2단계를 통과한 뒤 맡긴다(`BrowserMfaMappingService`).
      */
-    fun socialLoginForBrowser(provider: SocialProvider, code: String, state: String?, deviceInfo: String?, ipAddress: String?): BrowserPrincipalModel {
-        val tokens =
+    fun socialLoginForBrowser(provider: SocialProvider, code: String, state: String?, deviceInfo: String?, ipAddress: String?): BrowserLoginOutcomeModel {
+        val outcome =
             socialAuthBizService.socialLogin(
                 provider = provider,
                 code = code,
@@ -62,10 +72,16 @@ class SocialAuthMappingService(
                 deviceType = "WEB",
                 deviceInfo = deviceInfo,
                 ipAddress = ipAddress,
+                origin = MfaOrigin.SOCIAL_BROWSER,
             )
-        val principal = authBizService.resolveBrowserPrincipal(tokens.accessToken)
-        tokenHandoffBizService.put(principal.sessionId, tokens)
-        return authMapper.toBrowserPrincipalModel(principal)
+        return when (outcome) {
+            is LoginOutcomeDto.MfaRequired -> BrowserLoginOutcomeModel.MfaRequired(outcome.challenge.token)
+            is LoginOutcomeDto.Tokens -> {
+                val principal = authBizService.browserPrincipalOf(outcome.session)
+                tokenHandoffBizService.put(principal.sessionId, outcome.session.tokens)
+                BrowserLoginOutcomeModel.SignedIn(authMapper.toBrowserPrincipalModel(principal))
+            }
+        }
     }
 
     fun linkSocialAccount(userId: Long, provider: SocialProvider, code: String, ipAddress: String?): SocialAccountModel =

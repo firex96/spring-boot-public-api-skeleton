@@ -1,9 +1,11 @@
 package com.rex.api.pub.skeleton.service.auth
 
 import com.rex.api.pub.skeleton.dto.auth.IssuedSessionDto
+import com.rex.api.pub.skeleton.dto.auth.LoginOutcomeDto
 import com.rex.api.pub.skeleton.dto.auth.LoginRequestDto
 import com.rex.api.pub.skeleton.dto.auth.TokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.UserDto
+import com.rex.api.pub.skeleton.enums.auth.MfaOrigin
 import com.rex.api.pub.skeleton.enums.auth.UserStatus
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
@@ -13,6 +15,7 @@ import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserGroupEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSessionEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
+import com.rex.api.pub.skeleton.service.mfa.MfaChallengeBizService
 import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.BehaviorSpec
@@ -26,8 +29,9 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import java.time.LocalDateTime
 
 /**
- * `AuthBizService.login` 의 로그인 보호 집행 — 차단 IP·잠긴 계정 거절, 실패 기록, 성공 시 초기화, 성공·실패 감사.
+ * `AuthBizService.login` 의 로그인 보호 집행 — 차단 IP·잠긴 계정 거절, 실패 기록·실패 감사, 성공하면 1단계 관문(`afterFirstFactor`)으로.
  *
+ * 성공 뒤의 카운터 초기화·세션 발급·성공 감사는 관문 뒤의 일이다(`LoginCompletionBizServiceTest`·`MfaChallengeBizServiceGatewayTest`).
  * 연결이 끊기면(호출 줄 삭제) L-1~L-7 이 실패한다. HTTP 경로(423 `AUTH001`, 관리자 조회·해제)는 e2e `LoginProtectionE2ETest`.
  * IP 차단 경로는 e2e 에서 꺼 두므로(스위트가 자기 IP 를 차단한다) L-1 이 유일한 고정점이다.
  */
@@ -40,8 +44,8 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
     val sessionCacheBizService = mockk<SessionCacheBizService>()
     val passwordEncoder = mockk<PasswordEncoder>()
     val loginAttemptBizService = mockk<LoginAttemptBizService>(relaxUnitFun = true)
-    val sessionIssueBizService = mockk<SessionIssueBizService>()
     val auditBizService = mockk<AuditBizService>(relaxUnitFun = true)
+    val mfaChallengeBizService = mockk<MfaChallengeBizService>()
 
     val authBizService =
         AuthBizService(
@@ -53,8 +57,8 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             sessionCacheBizService,
             passwordEncoder,
             loginAttemptBizService,
-            sessionIssueBizService,
             auditBizService,
+            mfaChallengeBizService,
             mockk<UserSessionRevocationBizService>(),
         )
 
@@ -143,15 +147,13 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
         val user = activeUser()
         every { userEntityService.getActiveUserByLoginId("user1") } returns user
         every { passwordEncoder.matches("secret", "hash") } returns true
-        every { sessionIssueBizService.issue(user, "WEB", null, any()) } returns issued()
+        every { mfaChallengeBizService.afterFirstFactor(user, MfaOrigin.API_PASSWORD, null, "WEB", null, ip) } returns LoginOutcomeDto.Tokens(issued())
 
-        Then("토큰을 돌려주고 사용자 카운터를 지운다 — 실패 기록 없음") {
-            val tokens = authBizService.login(request, ip)
+        Then("확인된 사용자를 비밀번호 출처로 관문에 넘기고 그 결과를 돌려준다 — 실패 기록·실패 감사 없음") {
+            val tokens = (authBizService.login(request, ip) as LoginOutcomeDto.Tokens).session.tokens
             tokens.accessToken shouldBe "access-token"
-            tokens.refreshToken shouldBe "refresh-token"
-            verify(exactly = 1) { loginAttemptBizService.clearAttempts("user1", ip) }
+            verify(exactly = 1) { mfaChallengeBizService.afterFirstFactor(user, MfaOrigin.API_PASSWORD, null, "WEB", null, ip) }
             verify(exactly = 0) { loginAttemptBizService.recordFailedAttempt(any(), any()) }
-            verify(exactly = 1) { auditBizService.logLoginSuccess(7L, "user1", ip, null, "session-1") }
             verify(exactly = 0) { auditBizService.logLoginFailure(any(), any(), any(), any()) }
         }
     }
@@ -171,12 +173,11 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
         val user = activeUser()
         every { userEntityService.getActiveUserByLoginId("user1") } returns user
         every { passwordEncoder.matches("secret", "hash") } returns true
-        every { sessionIssueBizService.issue(user, "WEB", null, any()) } returns issued()
+        every { mfaChallengeBizService.afterFirstFactor(user, MfaOrigin.API_PASSWORD, null, "WEB", null, null) } returns LoginOutcomeDto.Tokens(issued())
 
-        Then("IP 차단 조회 없이 토큰을 돌려주고 사용자 카운터를 지운다") {
-            authBizService.login(request, null).accessToken shouldBe "access-token"
+        Then("IP 차단 조회 없이 관문으로 넘긴다") {
+            (authBizService.login(request, null) as LoginOutcomeDto.Tokens).session.tokens.accessToken shouldBe "access-token"
             verify(exactly = 0) { loginAttemptBizService.isIpBlocked(any()) }
-            verify(exactly = 1) { loginAttemptBizService.clearAttempts("user1", null) }
         }
     }
 })

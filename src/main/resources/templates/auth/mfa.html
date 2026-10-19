@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>2단계 인증</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #f5f6f8; margin: 0; display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+        main { background: #fff; padding: 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, .08); width: 100%; max-width: 360px; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        p.help { font-size: 14px; color: #555; margin: 0 0 16px; }
+        label { display: block; font-size: 14px; margin: 12px 0 4px; }
+        input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccd; border-radius: 6px; font-size: 18px; letter-spacing: 4px; }
+        button { width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 6px; background: #2b59c3; color: #fff; font-size: 15px; cursor: pointer; }
+        .error { color: #c0392b; font-size: 14px; margin: 0 0 8px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>2단계 인증</h1>
+    <!-- 1단계(비밀번호·소셜)는 통과했다. 아직 로그인 상태가 아니다 — 코드가 맞아야 세션이 만들어진다 -->
+    <p class="help">인증 앱에 표시된 6자리 코드를 입력하세요.</p>
+    <p class="error" th:if="${mfaError}" th:text="${mfaError}"></p>
+    <form method="post" th:action="@{/auth/mfa}">
+        <input type="hidden" name="method" value="totp">
+        <label for="code">인증 코드</label>
+        <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus>
+        <button type="submit">확인</button>
+    </form>
+</main>
+</body>
+</html>

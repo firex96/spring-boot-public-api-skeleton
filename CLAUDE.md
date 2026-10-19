@@ -466,13 +466,23 @@ interface ExternalApi {
 - 감사 기록(`AuditBizService`)은 비동기가 아니다 — 호출자 트랜잭션에 동기 참여
 
 ### 9-0. 로그인과 세션 발급
-- 1st-party 세션(`user_sessions` 행·access/refresh 토큰·세션 캐시)은 **`SessionIssueBizService.issue` 한 곳에서만** 만든다 — 비밀번호(`AuthBizService.login`)·소셜(`SocialAuthBizService.socialLogin`) 모두. 인증 판단(비밀번호 비교·소셜 검증·로그인 보호)은 호출자가 끝낸 뒤에 부른다
+- 1st-party 세션(`user_sessions` 행·access/refresh 토큰·세션 캐시)은 **`SessionIssueBizService.issue` 한 곳에서만** 만들고, 그것을 부르는 곳은 인증 완료 지점 `LoginCompletionBizService.complete`(카운터 정리·발급·성공 감사) 하나다. 1단계 출구(`AuthBizService.login`·`SocialAuthBizService.socialLogin`)는 인증 판단(비밀번호 비교·소셜 검증·로그인 보호)을 끝낸 뒤 관문 `MfaChallengeBizService.afterFirstFactor` 만 부른다 — 새 로그인 경로도 이 관문을 지나야 2차 인증을 빠뜨리지 않는다
 - 세션 일괄 폐기는 `UserSessionRevocationBizService.revokeAll(userId, reason, exceptSessionId)` 한 곳이다 — 호출자는 사유와 남길 세션만 정한다
-- 잠긴 계정 거절은 `LoginAttemptBizService.accountLockedException` 으로 만든다(비밀번호·소셜이 같은 문구)
+- 잠긴 계정 거절은 `LoginAttemptBizService.accountLockedException` 으로 만든다(비밀번호·소셜·2단계가 같은 문구)
 - `AuthBizService.verifyPassword` 는 로그인 보호(차단 IP·잠금·실패 기록)를 집행하고 확인된 사용자만 돌려준다. **성공해도 실패 카운터를 지우지 않는다** — 호출자가 인증이 최종적으로 끝난 지점에서 `clearAttempts` 를 부른다
 - 소셜 로그인도 차단 IP(403)·잠긴 계정(423)을 거절한다(`SocialAuthBizService.socialLogin`) — 잠긴 계정이 소셜로 우회하지 못한다. 소셜 검증 실패는 비밀번호 추측이 아니라 실패 카운터를 올리지 않는다
 - 비밀번호 로그인은 감사를 남긴다 — 실패는 `LOGIN_FAILURE`(사유 `BLOCKED_IP`·`ACCOUNT_LOCKED`·`INVALID_CREDENTIALS`, 사용자 ID 없음, `noRollbackFor` 로 커밋), 성공은 세션을 만든 뒤 `LOGIN_SUCCESS`(세션 ID 포함)
 - 검출: `SessionIssueBizServiceTest` · `AuthBizServiceLoginProtectionTest` · `SocialAuthBizServiceLoginProtectionTest`(유닛) · `SocialBrowserLoginIntegrationTest`「로그인 보호」 · `LoginAuditE2ETest`
+
+### 9-0a. 2차 인증 (TOTP)
+- 사용자가 스스로 켠다(`/user/mfa` — setup → activate). 수단은 TOTP(RFC 6238, HMAC-SHA1·6자리·30초, ±1 구간)뿐이고 메일 코드·기기 기억은 없다. 시크릿은 `MfaSecretCipher`(AES-256-GCM, AAD `mfa:{userId}`, 키 `mfa-secret-encryption-key`)로 암호화해 `user_mfa_credentials` 에 둔다
+- **켠 계정은 어느 로그인 경로로도 2단계 없이 세션을 받지 않는다** — `user_sessions` 행·토큰·브라우저 SecurityContext 는 2단계를 통과한 뒤에만 만든다. 1단계 출구 넷(`AuthBizService.login`·`loginForBrowser`, `SocialAuthBizService.socialLogin` 네이티브·콜백)은 `LoginOutcomeDto.MfaRequired` 로 challenge 만 만든다. 그래서 authorize·refresh·`/link`·`/user/**` 에는 별도 게이트가 없다
+- 대기 상태는 Redis challenge(`MfaChallengeBizService`, `mfa:challenge:{sha256(token)}`, 5분, 저장·만료는 Lua 한 번) **하나뿐**이다 — 브라우저도 세션에는 토큰 문자열만 둔다(`MfaPendingTokenStore.begin` — 토큰을 두고 세션 ID 를 바꾼다). 완료(`complete`)는 존재 → 출처(`MfaOrigin`, API 경로는 `API_*`·브라우저는 `AUTHORIZE`·`SOCIAL_BROWSER` 만) → 차단 IP·잠금(코드 보기 전) → 코드 → `DEL` 반환 1 순서다. 출처가 틀리면 challenge 를 소비하지 않는다
+- 같은 TOTP 구간은 한 번만 통과한다 — `last_used_step` 조건부 UPDATE 의 갱신 행 수(`UserMfaEntityService.markTotpStepUsed`)
+- 2단계 실패는 비밀번호 실패와 **같은 계정 잠금 카운터**를 올리고(challenge 를 바꿔도 누적), 카운터는 **2단계 성공 때만** 지운다(1단계 성공은 지우지 않는다). challenge 하나에서 5번 틀리면 challenge 를 지운다(`FAIL_SCRIPT` — 키가 있을 때만 증가)
+- 등록·관리 API 의 재인증은 비밀번호가 아니라 현재 코드다(소셜 전용 사용자는 비밀번호가 없다). 실패는 로그인 잠금과 별개인 `mfa:manage:attempt:{userId}`(5회/15분, 429)로 막는다. activate 는 현재 세션을 뺀 나머지 세션을 폐기한다
+- 응답: API 1단계 `202 MfaChallengeModel{mfaToken, expiresIn, methods}` → `POST /auth/login/mfa`. 오류 `MfaException`(`MFA001`~`MFA006`, `docs/ERROR_CODES.md`)
+- 검출: `TotpTest`·`Base32Test`·`MfaSecretCipherTest`(유닛) · `MfaChallengeIntegrationTest`(재사용·동시 8건 중 1건·출처·한도·잠금 우선·1단계가 카운터를 지우지 않음) · `SocialBrowserLoginIntegrationTest`「2차 인증」 · `MfaE2ETest`
 
 ### 9-1. Session Ownership (세션 표면의 인가)
 - 세션 폐기 표면 둘(`DELETE /users/me/sessions/{sessionId}` — JWT 의 `jti`, `DELETE /user/sessions/{id}` — 행 id)은 **요청자(principal) 소유 세션만** 폐기한다 — 타인 세션은 403(`ForbiddenException`)/400, 없는 세션은 204(멱등). 경로는 `Controller → UserSelfMappingService → UserSelfBizService.revokeSessionBySessionId → UserEntityService`
@@ -507,7 +517,7 @@ interface ExternalApi {
 - **1회 소비 값은 세션 속성이 아니라 Redis `GETDEL`** 로 다룬다 — 세션은 요청마다 읽은 사본이라 동시 요청이 같은 값을 둘 다 소비할 수 있다
 - 소셜 state: `GET /auth/oauth2/{p}/authorize` 가 발급해 `browser:social-state:{state}`(TTL 5분)에 `{browserSessionId, provider}` 로 묶고 provider 로 302 한다. 콜백은 **무엇보다 먼저** 소비하고, 세션·provider 가 다르면 코드 교환 없이 `error=invalid_state` 다. `POST /auth/oauth2/{p}/login`·`/link` 는 네이티브 코드 교환이라 state 검증은 클라이언트 책임이다
 - **소셜 콜백은 토큰을 URL 에 싣지 않는다.** 성공하면 토큰을 `browser:token-handoff:{userSessionId}`(TTL 60초)에 맡기고, `changeSessionId` 뒤 SecurityContext 를 세션에 저장(`BrowserSessionAuthenticator`)하고, 쿼리 없이 `/demo/auth/callback` 으로 보낸다. 페이지는 세션 쿠키 + CSRF 헤더로 `POST /auth/session/token` 을 한 번 부른다(두 번째·미로그인 401, CSRF 없음 403)
-- **인가 서버 브라우저 흐름**: `/oauth2/authorize`·`/oauth2/login`·`/oauth2/consent` 는 브라우저 체인이다 — authorize 는 브라우저 세션으로만 로그인을 판정한다. `LOGIN_REQUIRED` 면 원래 authorize URL 을 서버가 다시 조립해 세션(`AuthorizationRequestStore`, `/oauth2/authorize?` 접두사 강제)에 두고 `/oauth2/login` 으로 보낸다 — 복귀 주소를 쿼리로 받지 않는다(오픈 리다이렉트). 로그인(`OAuth2BrowserController`)은 `AuthBizService.loginForBrowser` → `login` 을 그대로 지나 로그인 보호를 재사용하고 토큰을 내주지 않는다. 동의는 HTML 폼(`templates/oauth2/`, 데모 fragments 에 기대지 않는다)이고 결과를 저장하지 않는다. 화면의 OAuth2 검증 실패는 `oauth2/error` HTML(401/400), Location 없음
+- **인가 서버 브라우저 흐름**: `/oauth2/authorize`·`/oauth2/login`·`/oauth2/consent`·`/auth/mfa`(2단계 화면, 「9-0a」) 는 브라우저 체인이다 — authorize 는 브라우저 세션으로만 로그인을 판정한다. `LOGIN_REQUIRED` 면 원래 authorize URL 을 서버가 다시 조립해 세션(`AuthorizationRequestStore`, `/oauth2/authorize?` 접두사 강제)에 두고 `/oauth2/login` 으로 보낸다 — 복귀 주소를 쿼리로 받지 않는다(오픈 리다이렉트). 로그인(`OAuth2BrowserController`)은 `AuthBizService.loginForBrowser` → `login` 을 그대로 지나 로그인 보호를 재사용하고 토큰을 내주지 않는다. 동의는 HTML 폼(`templates/oauth2/`, 데모 fragments 에 기대지 않는다)이고 결과를 저장하지 않는다. 화면의 OAuth2 검증 실패는 `oauth2/error` HTML(401/400), Location 없음
 - 브라우저 세션 principal 은 사용자 세션 ID 를 든다. `BrowserSessionValidationFilter` 가 요청마다 `validateSession` 으로 폐기를 보고 세션을 버린다 — 로그아웃·전체 로그아웃·비밀번호 변경이 브라우저 세션에도 걸린다. 일괄 폐기는 **폐기 전에** 대상 세션을 모으고 **커밋 뒤에** 그 캐시를 지운다(`UserSessionRevocationBizService.revokeAll` → `SessionCacheBizService.evictRevokedSessions`) — 폐기 뒤 "살아 있는 세션" 으로 찾으면 방금 폐기한 세션의 캐시가 남고, 커밋 전에 지우면 다른 요청이 폐기 전 행을 다시 캐시에 올린다. `deleteAllUserSessions` 는 권한 갱신 전용이다. 조회 쪽 캐시 miss 는 `cacheSessionUnlessRevoked` — 폐기 표식(`session:revoked:{id}`)이 없을 때만 쓰는 Lua 스크립트(해시 태그로 같은 슬롯)라, 폐기가 끝난 뒤 폐기 전 값이 다시 캐시에 나타나지 않는다
 - 쿠키: HttpOnly · `SameSite=Lax`(Strict 면 provider 콜백에 쿠키가 실리지 않는다) · Secure 는 논리 키 `browser-session-cookie-secure`(기본 `true`, `local`·통합 테스트 `false`)
 - 검출: `SocialAuthorizationStateBizServiceTest`·`TokenHandoffBizServiceTest`(유닛) · `SocialBrowserLoginIntegrationTest`(실제 체인·Redis 클러스터, 세션 복원, 동시성) · `SocialAuthE2ETest` · `AuthorizationRequestStoreTest` · `OAuth2BrowserControllerTest` · `OAuth2AuthorizationE2ETest`(로그인·동의 왕복) · `SessionOwnershipE2ETest` O-4·O-5(일괄 폐기)

@@ -1,12 +1,13 @@
 package com.rex.api.pub.skeleton.service.auth
 
 import com.rex.api.pub.skeleton.client.social.SocialOAuth2Client
+import com.rex.api.pub.skeleton.dto.auth.LoginOutcomeDto
 import com.rex.api.pub.skeleton.dto.auth.OAuth2TokenResponse
 import com.rex.api.pub.skeleton.dto.auth.SocialAccountDto
 import com.rex.api.pub.skeleton.dto.auth.SocialUserInfo
-import com.rex.api.pub.skeleton.dto.auth.TokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.UserDto
 import com.rex.api.pub.skeleton.dto.auth.UserSocialAccountDto
+import com.rex.api.pub.skeleton.enums.auth.MfaOrigin
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.enums.auth.UserStatus
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
@@ -15,6 +16,7 @@ import com.rex.api.pub.skeleton.exception.auth.ForbiddenException
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
+import com.rex.api.pub.skeleton.service.mfa.MfaChallengeBizService
 import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import com.rex.api.pub.skeleton.util.logger
 import org.springframework.stereotype.Service
@@ -34,8 +36,8 @@ class SocialAuthBizService(
     private val socialOAuth2Clients: List<SocialOAuth2Client>,
     private val userEntityService: UserEntityService,
     private val userSocialAccountEntityService: UserSocialAccountEntityService,
-    private val sessionIssueBizService: SessionIssueBizService,
     private val loginAttemptBizService: LoginAttemptBizService,
+    private val mfaChallengeBizService: MfaChallengeBizService,
     private val auditBizService: AuditBizService,
 ) {
     private val log = logger()
@@ -57,6 +59,8 @@ class SocialAuthBizService(
      *
      * 로그인 보호의 차단 IP·계정 잠금은 비밀번호 로그인과 같이 집행한다 — 잠긴 계정이 소셜로 우회하지 못하게.
      * 소셜 검증 실패는 비밀번호 추측이 아니므로 실패 카운터를 올리지 않는다.
+     * 2차 인증이 켜진 계정은 세션 대신 2단계 challenge 를 받는다 — 소셜 계정만 탈취해서는 로그인하지 못한다.
+     * [origin] 은 2단계를 마친 뒤 이어 갈 곳이다(네이티브 [MfaOrigin.API_SOCIAL], 브라우저 콜백 [MfaOrigin.SOCIAL_BROWSER]).
      */
     @Transactional(
         transactionManager = "authTransactionManager",
@@ -69,7 +73,8 @@ class SocialAuthBizService(
         deviceType: String?,
         deviceInfo: String?,
         ipAddress: String?,
-    ): TokenResponseDto {
+        origin: MfaOrigin,
+    ): LoginOutcomeDto {
         val oauth2Client = getOAuth2Client(provider)
 
         val tokenResponse = try {
@@ -146,17 +151,8 @@ class SocialAuthBizService(
         updateSocialAccountInfo(socialAccount, socialUserInfo, tokenResponse)
         syncUserProfile(user, socialUserInfo)
 
-        val issued = sessionIssueBizService.issue(user, deviceType, deviceInfo, ipAddress)
-
-        auditBizService.logSocialLoginSuccess(
-            userId = user.id,
-            username = user.loginId,
-            provider = provider.name,
-            ipAddress = ipAddress,
-            userAgent = deviceInfo,
-            sessionId = issued.sessionId,
-        )
-        return issued.tokens
+        // 2차 인증이 켜져 있으면 challenge, 아니면 세션 발급·성공 감사(소셜 1단계는 실패 카운터를 지우지 않는다)
+        return mfaChallengeBizService.afterFirstFactor(user, origin, provider, deviceType, deviceInfo, ipAddress)
     }
 
     /**

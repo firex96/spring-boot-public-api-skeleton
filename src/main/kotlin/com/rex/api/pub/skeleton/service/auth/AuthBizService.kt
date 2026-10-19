@@ -2,12 +2,14 @@ package com.rex.api.pub.skeleton.service.auth
 
 import com.rex.api.pub.skeleton.dto.auth.AccessTokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.ChangePasswordRequestDto
+import com.rex.api.pub.skeleton.dto.auth.IssuedSessionDto
+import com.rex.api.pub.skeleton.dto.auth.LoginOutcomeDto
 import com.rex.api.pub.skeleton.dto.auth.LoginRequestDto
 import com.rex.api.pub.skeleton.dto.auth.SessionInfo
 import com.rex.api.pub.skeleton.dto.auth.SignupRequestDto
-import com.rex.api.pub.skeleton.dto.auth.TokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.UserDto
 import com.rex.api.pub.skeleton.dto.auth.UserInfoDto
+import com.rex.api.pub.skeleton.enums.auth.MfaOrigin
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
 import com.rex.api.pub.skeleton.exception.auth.DuplicateUserException
@@ -18,6 +20,7 @@ import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserGroupEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSessionEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
+import com.rex.api.pub.skeleton.service.mfa.MfaChallengeBizService
 import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import com.rex.api.pub.skeleton.util.logger
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -38,8 +41,8 @@ class AuthBizService(
     private val sessionCacheBizService: SessionCacheBizService,
     private val passwordEncoder: PasswordEncoder,
     private val loginAttemptBizService: LoginAttemptBizService,
-    private val sessionIssueBizService: SessionIssueBizService,
     private val auditBizService: AuditBizService,
+    private val mfaChallengeBizService: MfaChallengeBizService,
     private val userSessionRevocationBizService: UserSessionRevocationBizService,
 ) {
     private val log = logger()
@@ -78,7 +81,9 @@ class AuthBizService(
     }
 
     /**
-     * 로그인 — 비밀번호를 확인하고([verifyPassword]) 실패 카운터를 지운 뒤 세션을 발급한다.
+     * 로그인 — 비밀번호를 확인한다([verifyPassword]). 2차 인증이 켜져 있으면 세션 대신 2단계 challenge 를 만들고
+     * (실패 카운터·성공 감사는 2단계를 통과할 때 — `MfaChallengeBizService.complete`), 꺼져 있으면 실패 카운터를 지우고 세션을 발급한다.
+     * [origin] 은 2단계를 마친 뒤 이어 갈 곳이다 — API 는 [MfaOrigin.API_PASSWORD], 인가 서버 로그인 화면은 [MfaOrigin.AUTHORIZE].
      *
      * `noRollbackFor`: 인증 실패는 오류가 아니라 업무 결과다. 실패 기록(`recordFailedAttempt`)이 남기는 잠금 감사 로그·IP 자동 차단 행은
      * 이 auth 트랜잭션에 참여하므로(`AuditLogRepository`·`BlockedIpRepository` 는 `authTransactionManager`), 예외로 롤백되면 보호 장치가
@@ -91,13 +96,9 @@ class AuthBizService(
     fun login(
         request: LoginRequestDto,
         ipAddress: String?,
-    ): TokenResponseDto {
-        val user = verifyPassword(request, ipAddress)
-        loginAttemptBizService.clearAttempts(request.loginId, ipAddress)
-        val issued = sessionIssueBizService.issue(user, request.deviceType, request.deviceInfo, ipAddress)
-        auditBizService.logLoginSuccess(user.id, user.loginId, ipAddress, request.deviceInfo, issued.sessionId)
-        return issued.tokens
-    }
+        origin: MfaOrigin = MfaOrigin.API_PASSWORD,
+    ): LoginOutcomeDto =
+        mfaChallengeBizService.afterFirstFactor(verifyPassword(request, ipAddress), origin, provider = null, request.deviceType, request.deviceInfo, ipAddress)
 
     /**
      * 비밀번호 확인 — 로그인 보호(차단 IP·계정 잠금·실패 기록)를 집행하고 확인된 사용자를 돌려준다.
@@ -132,8 +133,8 @@ class AuthBizService(
     }
 
     /**
-     * 인가 서버 로그인 화면의 로그인 — [login] 을 그대로 지나 IP 차단·잠금·실패 집계·계정 열거 방지를 재사용한다.
-     * 발급된 토큰은 돌려주지 않는다. 브라우저 세션은 사용자 세션 ID 만 들고, 로그아웃·강제 종료가 브라우저 세션에도 걸린다.
+     * 인가 서버 로그인 화면의 로그인 — [login] 을 그대로 지나 IP 차단·잠금·실패 집계·계정 열거 방지·2차 인증을 재사용한다.
+     * 세션을 발급했으면 브라우저 principal 을, 2차 인증 대상이면 challenge 를 돌려준다(토큰은 내주지 않는다).
      */
     @Transactional(
         transactionManager = "authTransactionManager",
@@ -142,7 +143,7 @@ class AuthBizService(
     fun loginForBrowser(
         request: LoginRequestDto,
         ipAddress: String?,
-    ): SessionInfo = resolveBrowserPrincipal(login(request, ipAddress).accessToken)
+    ): LoginOutcomeDto = login(request, ipAddress, MfaOrigin.AUTHORIZE)
 
     @Transactional(transactionManager = "authTransactionManager")
     fun logout(sessionId: String) {
@@ -214,20 +215,11 @@ class AuthBizService(
     fun validateSession(sessionId: String): SessionInfo? = sessionCacheBizService.getSession(sessionId)
 
     /**
-     * 막 발급된 access 토큰으로 브라우저 세션 principal 을 만든다 — 토큰의 jti(사용자 세션)가 살아 있어야 한다.
-     * 브라우저 세션은 이 사용자 세션 ID 를 들고, 요청마다 [validateSession] 으로 폐기 여부를 다시 본다.
+     * 막 발급한 세션으로 브라우저 세션 principal 을 만든다 — 발급 결과가 세션 ID 를 들고 있어 토큰을 다시 검증하지 않는다.
+     * 그사이 폐기됐으면 거절한다. 브라우저 세션은 이 사용자 세션 ID 를 들고, 요청마다 [validateSession] 으로 폐기 여부를 다시 본다.
      */
-    fun resolveBrowserPrincipal(accessToken: String): SessionInfo {
-        val payload = jwtTokenBizService.validateToken(accessToken)
-        if (payload == null || payload.isRefreshToken) {
-            throw InvalidTokenException("유효하지 않은 토큰입니다")
-        }
-        val session = validateSession(payload.sessionId)
-        if (session == null || session.revoked) {
-            throw InvalidTokenException("세션이 유효하지 않습니다")
-        }
-        return session
-    }
+    fun browserPrincipalOf(issued: IssuedSessionDto): SessionInfo =
+        validateSession(issued.sessionId)?.takeUnless { it.revoked } ?: throw InvalidTokenException("세션이 유효하지 않습니다")
 
     fun getCurrentUser(userId: Long): UserInfoDto {
         val user =

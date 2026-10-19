@@ -85,10 +85,13 @@ base package 를 바꿀 때는 문자열 안의 FQN 도 함께 고친다 — `ME
 ```bash
 docker compose up -d                 # MySQL·Redis — 스키마·계정·main 업무 테이블까지 만든다
 ./gradlew ktlintFormat && ./gradlew build
+export MFA_SECRET_ENCRYPTION_KEY=…   # 2차 인증 시크릿 암호화 키 — 아래 「로컬 암호화 키」
 ./gradlew bootRun                    # SPRING_PROFILES_ACTIVE 가 없으면 local 로 뜬다 — Flyway 가 skeleton_auth 를 만든다
 curl localhost:8080/actuator/health
 open http://localhost:8080/demo      # 데모 페이지 (e2e 시드 계정: e2e_test_user / Test@1234!)
 ```
+
+**로컬 암호화 키** — 2차 인증 TOTP 시크릿을 암호화하는 키(`mfa-secret-encryption-key`)는 애플리케이션 yml 에 값을 두지 않는다. `openssl rand -base64 32` 로 **처음 한 번** 만들어 셸 프로필 등 레포 밖에 두고, 같은 로컬 DB 를 쓰는 동안 계속 같은 값을 `MFA_SECRET_ENCRYPTION_KEY` 로 준다. 키를 바꾸면 저장된 등록을 복호화하지 못하므로 `docker compose down -v` 로 로컬 DB 를 새로 만든다. 키가 없으면 기동이 실패한다(`UnresolvedPlaceholderGuard`). 테스트는 테스트 소스셋의 고정 값을 쓴다.
 
 `docker/mysql/init` 과 `db/manual/*.sql` 은 **볼륨을 처음 만들 때만** 실행된다. 바꾼 뒤에는 `docker compose down -v` 로 다시 만든다.
 
@@ -235,6 +238,7 @@ docker compose up -d && ./gradlew e2eTest         # e2e 는 check 에 묶지 않
 | `redis-managed-cluster` | `REDIS_MANAGED_CLUSTER` | | 관리형 Redis 클러스터(단일 엔드포인트)면 `true` — `RedisConfiguration` |
 | `core-api-url` | `CORE_API_URL` | | `CoreApi` 예제 클라이언트의 대상 |
 | `jwt-secret` | `JWT_SECRET` | ✔ | JWT HS256 서명키 (32자 이상) |
+| `mfa-secret-encryption-key` | `MFA_SECRET_ENCRYPTION_KEY` | ✔ | 2차 인증 TOTP 시크릿 암호화 키(AES-256, base64 32바이트). 바꾸면 저장된 등록을 복호화하지 못한다 |
 | `oidc-issuer` | `OIDC_ISSUER` | | 이 서비스의 외부 주소 — id_token `iss` |
 | `oauth2-redirect-base-url` | `OAUTH2_REDIRECT_BASE_URL` | | 소셜 로그인 콜백의 기준 주소 |
 | `browser-session-cookie-secure` | `BROWSER_SESSION_COOKIE_SECURE` | | 브라우저 세션 쿠키(`SKELETON_SESSION`) Secure. 기본 `true`, `local` 은 `false` |
@@ -250,15 +254,17 @@ Flyway 는 `spring.flyway.enabled` 가 켜질 때만 돈다(기본 `false`, `loc
 ```bash
 # AWS — JSON 비밀 하나에 키를 모은다
 aws secretsmanager create-secret --name public-api-skeleton/prod \
-  --secret-string '{"jwt-secret":"…","db-writer-username":"app","db-writer-password":"…","db-reader-username":"ro","db-reader-password":"…","db-admin-username":"admin","db-admin-password":"…"}'
+  --secret-string '{"jwt-secret":"…","mfa-secret-encryption-key":"…","db-writer-username":"app","db-writer-password":"…","db-reader-username":"ro","db-reader-password":"…","db-admin-username":"admin","db-admin-password":"…"}'
 SPRING_PROFILES_ACTIVE=aws AWS_SECRET_ID=public-api-skeleton/prod DB_HOST=… OIDC_ISSUER=https://… java -jar app.war
 
 # Azure — 비밀 이름 = 논리 키
 az keyvault secret set --vault-name <vault> --name jwt-secret --value '…'
+az keyvault secret set --vault-name <vault> --name mfa-secret-encryption-key --value '…'
 SPRING_PROFILES_ACTIVE=azure AZURE_KEYVAULT_ENDPOINT=https://<vault>.vault.azure.net/ DB_HOST=… java -jar app.war
 
 # GCP — 비밀 이름 = 논리 키 (application-gcp.yml 이 키마다 ${sm@…} 로 대응시킨다)
 printf '…' | gcloud secrets create jwt-secret --data-file=-
+printf '…' | gcloud secrets create mfa-secret-encryption-key --data-file=-
 SPRING_PROFILES_ACTIVE=gcp GCP_PROJECT_ID=<project> DB_HOST=… java -jar app.war
 ```
 
@@ -291,6 +297,7 @@ SPRING_PROFILES_ACTIVE=gcp GCP_PROJECT_ID=<project> DB_HOST=… java -jar app.wa
 ./gradlew bootWar             # build/libs/*.war — 실행: java -jar
 
 docker compose up -d
+export MFA_SECRET_ENCRYPTION_KEY=…   # 「6. 뜨는지 확인한다」의 로컬 암호화 키
 ./gradlew bootRun             # local 프로필
 ```
 
@@ -307,6 +314,8 @@ docker compose up -d
 **OAuth2 / OIDC** — Authorization Code Flow · Client Credentials Flow · ID Token 발급 · JWK Set 엔드포인트. authorize 는 브라우저 흐름이다 — 브라우저 세션이 없으면 `/oauth2/login`(로그인 화면), third-party 클라이언트면 `/oauth2/consent`(동의 화면)를 거쳐 `redirect_uri?code` 로 간다. discovery(`/.well-known/openid-configuration`)는 실제 지원값 상수에서 만든다 — `code` · authorization_code/refresh_token/client_credentials · `client_secret_basic`/`client_secret_post` · PKCE `S256`/`plain` · id_token RS256 · scope `openid profile email offline_access`. userinfo 는 이 서버가 발급한 access 토큰(openid scope)만 받는다. RSA 키가 없으면 ID Token 은 기동 시 생성한 임시 키로 서명된다 — 운영은 `oidc-rsa-*` 를 등록하고 `oidc.require-rsa-key: true` 로 막는다.
 
 **소셜 로그인** — Google · Kakao · Naver. `application.yml` 의 `oauth2` 주석에서 켤 provider 만 푼다. 브라우저는 `GET /auth/oauth2/{provider}/authorize` 로 이동한다 — 서버가 state 를 그 브라우저 세션(`SKELETON_SESSION`)에 묶어 발급하고, 콜백은 state 를 먼저 소비해 다른 세션·재사용·만료면 `invalid_state` 로 끝낸다. 브라우저 흐름만 세션·CSRF 를 쓰고 나머지 API 는 STATELESS·Bearer 다(CLAUDE.md 「9-3」).
+
+**2차 인증** — TOTP(RFC 6238, 인증 앱)를 사용자가 스스로 켠다(`/user/mfa`). 켠 계정은 **어느 로그인 경로로도 2단계 없이 세션을 받지 않는다** — `POST /auth/login`·네이티브 소셜은 `202` challenge(`mfaToken`)를 받아 `POST /auth/login/mfa` 로 마치고, 인가 서버 로그인 화면·소셜 콜백은 `/auth/mfa` 화면을 거친다. 같은 구간 코드는 한 번만 통과하고(DB 조건부 UPDATE), 2단계 실패는 비밀번호 실패와 같은 계정 잠금 카운터를 올린다. 시크릿은 AES-256-GCM 으로 암호화해 둔다(`mfa-secret-encryption-key`). 메일 코드·기기 기억은 없다(CLAUDE.md 「9-0a」).
 
 **권한** — 그룹 기반 RBAC + Permission 기반 접근 제어. 세션 폐기는 **요청자 소유 세션만**(타인 403). 비밀번호를 바꾸면 세션을 폐기한다 — `/auth/password/change` 는 현재 세션까지 모두, `/user/password/change` 는 요청한 세션만 남기고 나머지를. 401·403 본문은 OAuth2 프로토콜 엔드포인트(RFC 6749 형식)와 인가 서버 로그인·동의 화면의 오류(HTML)를 빼고 모두 `ErrorResponseModel` 이다 — 필터 체인 거부와 `@PreAuthorize` 거부가 같은 형식이다(`docs/ERROR_CODES.md`).
 

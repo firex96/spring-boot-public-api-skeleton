@@ -13,6 +13,7 @@ import com.rex.api.pub.skeleton.exception.auth.DuplicateResourceException
 import com.rex.api.pub.skeleton.exception.auth.DuplicateUserException
 import com.rex.api.pub.skeleton.exception.auth.ForbiddenException
 import com.rex.api.pub.skeleton.exception.auth.InvalidTokenException
+import com.rex.api.pub.skeleton.exception.auth.MfaException
 import com.rex.api.pub.skeleton.exception.auth.ResourceNotFoundException
 import com.rex.api.pub.skeleton.exception.auth.UnauthorizedException
 import com.rex.api.pub.skeleton.model.ErrorResponseModel
@@ -95,6 +96,13 @@ class GlobalExceptionHandler(
         logger.warn("AccountLockedException: {}", ex.message) // 잠금은 보호 장치의 정상 동작이라 error 가 아니다
         val response: ErrorResponseModel = ErrorResponseModel.of(ErrorCode.ACCOUNT_LOCKED_ERROR, ex.message)
         return ResponseEntity<ErrorResponseModel>(response, HTTP_STATUS_LOCKED)
+    }
+
+    /** 2차 인증 실패 — 코드 불일치 400 · challenge 무효 401 · 상태 충돌 409 · 등록 없음 404 · 시도 초과 429. */
+    @ExceptionHandler(MfaException::class)
+    protected fun handleMfaException(ex: MfaException): ResponseEntity<ErrorResponseModel> {
+        logger.warn("MfaException {}: {}", ex.errorCode.divisionCode, ex.message)
+        return ResponseEntity<ErrorResponseModel>(ErrorResponseModel.of(ex.errorCode, ex.message), HttpStatus.valueOf(ex.errorCode.status))
     }
 
     @ExceptionHandler(UnauthorizedException::class)

@@ -3,6 +3,7 @@ package com.rex.api.pub.skeleton.controller.auth
 import com.ninjasquad.springmockk.MockkBean
 import com.rex.api.pub.skeleton.fixture.AuthFixture
 import com.rex.api.pub.skeleton.model.auth.AccessTokenResponseModel
+import com.rex.api.pub.skeleton.model.auth.LoginOutcomeModel
 import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
 import com.rex.api.pub.skeleton.service.mapping.AuthMappingService
 import com.rex.api.pub.skeleton.support.ControllerTestConfiguration
@@ -149,7 +150,7 @@ class AuthControllerTest(
 
             When("유효한 자격 증명으로 로그인 요청") {
                 every { clientIpResolver.resolve(any()) } returns "203.0.113.10"
-                every { authMappingService.login(any(), "203.0.113.10") } returns expectedTokenResponse
+                every { authMappingService.login(any(), "203.0.113.10") } returns LoginOutcomeModel.Tokens(expectedTokenResponse)
 
                 Then("200 OK와 TokenResponseDto를 반환한다") {
                     mockMvc.postJson("/auth/login", loginRequest)

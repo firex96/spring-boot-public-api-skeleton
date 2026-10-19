@@ -10,6 +10,9 @@
 server:
   port: 0 # 랜덤 포트 사용
 
+# 2차 인증 시크릿 암호화 키 — 테스트 전용 고정값(32바이트). local 프로필의 애플리케이션 yml 에는 값이 없다
+mfa-secret-encryption-key: ZTJlLW1mYS1zZWNyZXQtZW5jcnlwdGlvbi1rZXktMDE=
+
 spring:
   application:
     name: public-api-skeleton-e2e

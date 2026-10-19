@@ -78,7 +78,7 @@ class SecurityConfiguration(
      * 브라우저 체인 — 사용자 에이전트가 리다이렉트로 오가는 흐름(경로 정본: [BrowserSecurityPaths]).
      *
      * 세션(`SKELETON_SESSION`, Redis)과 CSRF 를 쓰고 JWT 는 읽지 않는다. 세션 속성은 SecurityContext·CSRF 토큰·
-     * 대기 중인 authorize URL 셋뿐이다 — 요청 캐시를 끄는 이유다. 1회 소비 값(state·토큰 교환)은 세션이 아니라 Redis `GETDEL` 로 다룬다.
+     * 대기 중인 authorize URL·2단계 challenge 토큰(문자열)뿐이다 — 요청 캐시를 끄는 이유다. 1회 소비 값(state·토큰 교환)은 세션이 아니라 Redis `GETDEL` 로 다룬다.
      * CORS 는 끈다: 쿠키를 싣는 경로를 교차 출처에 열지 않는다.
      */
     @Bean
@@ -99,6 +99,8 @@ class SecurityConfiguration(
                         BrowserSecurityPaths.DEMO_CALLBACK,
                         BrowserSecurityPaths.OAUTH2_AUTHORIZE,
                         BrowserSecurityPaths.OAUTH2_LOGIN,
+                        // 2단계 화면 — 진행 근거는 세션의 challenge 토큰과 Redis challenge 뿐이다(로그인 전 상태)
+                        BrowserSecurityPaths.AUTH_MFA,
                     ).permitAll()
                     .requestMatchers(BrowserSecurityPaths.OAUTH2_CONSENT, BrowserSecurityPaths.SESSION_API).authenticated()
                     .anyRequest().denyAll()
@@ -127,7 +129,7 @@ class SecurityConfiguration(
             .authorizeHttpRequests { auth ->
                 auth
                     // 공개 API
-                    .requestMatchers("/auth/login", "/auth/signup", "/auth/refresh").permitAll()
+                    .requestMatchers("/auth/login", "/auth/login/mfa", "/auth/signup", "/auth/refresh").permitAll()
                     // 소셜 로그인 코드 교환 - 공개 (인가 시작·콜백은 브라우저 체인)
                     .requestMatchers("/auth/oauth2/*/login").permitAll()
                     // 소셜 계정 연동/해제/조회 - 인증 필요

@@ -50,6 +50,7 @@ class AwsSecretsManagerProfileIntegrationTest : StringSpec({
                           "redis-password": "redis-from-aws",
                           "core-api-url": "http://core.example.internal",
                           "jwt-secret": "jwt-secret-from-aws-must-be-at-least-32-chars",
+                          "mfa-secret-encryption-key": "mfa-key-from-aws",
                           "oidc-issuer": "https://auth.example.internal",
                           "oauth2-redirect-base-url": "https://api.example.internal"
                         }
@@ -77,6 +78,7 @@ class AwsSecretsManagerProfileIntegrationTest : StringSpec({
                 env.getProperty("app.client.destinations.core.url") shouldBe "http://core.example.internal"
                 env.getProperty("app.flyway.mysql.password") shouldBe "admin-from-aws"
                 env.getProperty("jwt.secret") shouldBe "jwt-secret-from-aws-must-be-at-least-32-chars"
+                env.getProperty("mfa.secret-encryption-key") shouldBe "mfa-key-from-aws"
                 env.getProperty("oidc.issuer") shouldBe "https://auth.example.internal"
             }
     }

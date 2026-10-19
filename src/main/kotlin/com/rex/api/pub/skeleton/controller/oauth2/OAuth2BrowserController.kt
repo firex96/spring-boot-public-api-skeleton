@@ -4,6 +4,7 @@ import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
 import com.rex.api.pub.skeleton.config.security.browser.AuthorizationRequestStore
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSecurityPaths
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionAuthenticator
+import com.rex.api.pub.skeleton.config.security.browser.MfaPendingTokenStore
 import com.rex.api.pub.skeleton.controller.oauth2.support.AuthorizeRedirectUrlBuilder
 import com.rex.api.pub.skeleton.dto.auth.LoginRequestDto
 import com.rex.api.pub.skeleton.dto.oauth2.AuthorizationRequestDto
@@ -11,6 +12,7 @@ import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
 import com.rex.api.pub.skeleton.exception.auth.ForbiddenException
 import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
+import com.rex.api.pub.skeleton.model.auth.BrowserLoginOutcomeModel
 import com.rex.api.pub.skeleton.service.mapping.AuthMappingService
 import com.rex.api.pub.skeleton.service.mapping.OAuth2AuthorizationMappingService
 import com.rex.api.pub.skeleton.service.oauth2.OAuth2AuthorizationBizService
@@ -45,12 +47,13 @@ class OAuth2BrowserController(
     private val clientIpResolver: ClientIpResolver,
     private val browserSessionAuthenticator: BrowserSessionAuthenticator,
     private val authorizationRequestStore: AuthorizationRequestStore,
+    private val mfaPendingTokenStore: MfaPendingTokenStore,
 ) {
     @Operation(summary = "로그인 화면")
     @GetMapping("/login")
     fun loginPage(): String = VIEW_LOGIN
 
-    @Operation(summary = "로그인", description = "성공하면 기다리던 authorize 요청으로 302. 실패하면 같은 화면에 메시지")
+    @Operation(summary = "로그인", description = "성공하면 기다리던 authorize 요청으로 302. 2차 인증을 켠 계정은 /auth/mfa 로 302. 실패하면 같은 화면에 메시지")
     @PostMapping("/login")
     fun login(
         @RequestParam("loginId") loginId: String,
@@ -59,7 +62,7 @@ class OAuth2BrowserController(
         response: HttpServletResponse,
         model: Model,
     ): String {
-        val principal =
+        val outcome =
             try {
                 authMappingService.loginForBrowser(
                     LoginRequestDto(loginId = loginId, password = password, deviceType = DEVICE_TYPE, deviceInfo = request.getHeader("User-Agent")),
@@ -72,8 +75,17 @@ class OAuth2BrowserController(
             } catch (e: ForbiddenException) {
                 return loginFailed(model, e.message)
             }
-        browserSessionAuthenticator.signIn(request, response, principal)
-        return "redirect:" + (authorizationRequestStore.take(request) ?: "${BrowserSecurityPaths.OAUTH2_LOGIN}?success")
+        return when (outcome) {
+            is BrowserLoginOutcomeModel.SignedIn -> {
+                browserSessionAuthenticator.signIn(request, response, outcome.principal)
+                "redirect:" + (authorizationRequestStore.take(request) ?: "${BrowserSecurityPaths.OAUTH2_LOGIN}?success")
+            }
+            // 2차 인증 — 로그인시키지 않고 challenge 토큰만 세션에 둔 뒤 세션 ID 를 바꿔 2단계 화면으로. 기다리던 authorize URL 은 세션에 그대로 남는다
+            is BrowserLoginOutcomeModel.MfaRequired -> {
+                mfaPendingTokenStore.begin(request, outcome.mfaToken)
+                "redirect:" + BrowserSecurityPaths.AUTH_MFA
+            }
+        }
     }
 
     @Operation(summary = "동의 화면", description = "클라이언트 이름과 요청 scope 를 보여 준다")

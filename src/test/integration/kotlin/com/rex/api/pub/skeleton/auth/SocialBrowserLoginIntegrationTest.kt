@@ -8,7 +8,9 @@ import com.rex.api.pub.skeleton.dto.auth.SocialUserInfo
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
+import com.rex.api.pub.skeleton.service.mfa.MfaBizService
 import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
+import com.rex.api.pub.skeleton.util.TotpCodes
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -30,6 +32,7 @@ import org.springframework.test.context.ContextConfiguration
 import org.springframework.test.context.TestPropertySource
 import java.net.URI
 import java.net.URLDecoder
+import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -56,6 +59,7 @@ class SocialBrowserLoginIntegrationTest(
     private val userEntityService: UserEntityService,
     private val userSocialAccountEntityService: UserSocialAccountEntityService,
     private val loginAttemptBizService: LoginAttemptBizService,
+    private val mfaBizService: MfaBizService,
 ) : DescribeSpec() {
     @MockkBean
     lateinit var googleClient: GoogleOAuth2Client
@@ -64,6 +68,9 @@ class SocialBrowserLoginIntegrationTest(
 
     /** 연동된 계정의 로그인 ID — 잠금 검증에 쓴다. */
     private lateinit var linkedLoginId: String
+
+    /** 2차 인증을 켠 두 번째 연동 계정의 인증 앱. */
+    private lateinit var mfaCodes: TotpCodes
 
     private fun url(path: String) = URI.create("http://localhost:$port$path")
 
@@ -154,6 +161,29 @@ class SocialBrowserLoginIntegrationTest(
                 refreshToken = null,
                 tokenExpiresAt = null,
             )
+
+            val mfaUser =
+                userEntityService.createUser(
+                    loginId = "it_social_mfa_${UUID.randomUUID().toString().take(8)}",
+                    passwordHash = "{noop}unused",
+                    email = null,
+                    name = null,
+                    nickname = null,
+                    phone = null,
+                )
+            userSocialAccountEntityService.link(
+                userId = mfaUser.id,
+                provider = SocialProvider.GOOGLE.name,
+                providerId = MFA_PROVIDER_ID,
+                email = null,
+                name = null,
+                profileImage = null,
+                accessToken = null,
+                refreshToken = null,
+                tokenExpiresAt = null,
+            )
+            mfaCodes = TotpCodes(mfaBizService.setup(mfaUser.id).secret)
+            mfaBizService.activate(mfaUser.id, mfaCodes.next(), currentSessionId = "none")
         }
 
         beforeEach {
@@ -300,7 +330,56 @@ class SocialBrowserLoginIntegrationTest(
                 nativeLogin().statusCode() shouldBe 200
             }
         }
+
+        describe("2차 인증 — 소셜 계정만으로는 세션을 받지 못한다") {
+            beforeEach {
+                every { googleClient.getUserInfo(any()) } returns
+                    SocialUserInfo(provider = SocialProvider.GOOGLE, providerId = MFA_PROVIDER_ID, email = null, name = null, profileImage = null)
+            }
+
+            it("네이티브 코드 교환은 토큰 대신 202 challenge 다") {
+                val response = nativeLogin()
+
+                response.statusCode() shouldBe 202
+                response.body() shouldContain "mfaToken"
+                response.body() shouldNotContain "accessToken"
+            }
+
+            it("브라우저 콜백은 로그인시키지 않고 /auth/mfa 로 보낸다 — 2단계 전 토큰 교환 401, 통과 뒤 데모 콜백·교환 200") {
+                val (cookie, state) = startAuthorization()
+                val callback = callbackWithState(cookie, "google", state)
+                callback.statusCode() shouldBe 302
+                callback.location() shouldBe "/auth/mfa"
+                val pendingCookie = sessionCookie(callback).shouldNotBeNull()
+                pendingCookie shouldNotBe cookie
+
+                postSessionToken(pendingCookie, csrfOf(pendingCookie)).statusCode() shouldBe 401
+
+                val page = get("/auth/mfa", pendingCookie)
+                page.statusCode() shouldBe 200
+                val csrf = Regex("""name="_csrf"\s+value="([^"]+)"""").find(page.body()).shouldNotBeNull().groupValues[1]
+                val submitted = postForm("/auth/mfa", pendingCookie, mapOf("method" to "totp", "code" to mfaCodes.next(), "_csrf" to csrf))
+                submitted.statusCode() shouldBe 302
+                submitted.location() shouldBe "/demo/auth/callback"
+                val signedIn = sessionCookie(submitted) ?: pendingCookie
+
+                postSessionToken(signedIn, csrfOf(signedIn)).statusCode() shouldBe 200
+            }
+        }
     }
+
+    private fun postForm(path: String, cookie: String, form: Map<String, String>): HttpResponse<String> =
+        http.send(
+            HttpRequest.newBuilder(url(path))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Cookie", cookie)
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        form.entries.joinToString("&") { (k, v) -> "${URLEncoder.encode(k, StandardCharsets.UTF_8)}=${URLEncoder.encode(v, StandardCharsets.UTF_8)}" },
+                    ),
+                ).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
 
     private fun nativeLogin(): HttpResponse<String> =
         http.send(
@@ -313,5 +392,6 @@ class SocialBrowserLoginIntegrationTest(
 
     companion object {
         private const val LINKED_PROVIDER_ID = "linked-google-id"
+        private const val MFA_PROVIDER_ID = "mfa-google-id"
     }
 }

@@ -48,6 +48,14 @@ enum class ErrorCode(
     // 계정 잠금 (로그인 시도 횟수 초과) — docs/ERROR_CODES.md 「AccountLockedException」 423 / AUTH001
     ACCOUNT_LOCKED_ERROR(423, "AUTH001", "Account Locked Exception"),
 
+    // 2차 인증 — docs/ERROR_CODES.md 「MfaException」
+    MFA_INVALID_CODE(400, "MFA001", "Invalid MFA Code"),
+    MFA_CHALLENGE_INVALID(401, "MFA002", "Invalid Or Expired MFA Challenge"),
+    MFA_ALREADY_ENABLED(409, "MFA003", "MFA Already Enabled"),
+    MFA_NOT_ENABLED(409, "MFA004", "MFA Not Enabled"),
+    MFA_SETUP_NOT_FOUND(404, "MFA005", "MFA Setup Not Found"),
+    MFA_TOO_MANY_ATTEMPTS(429, "MFA006", "Too Many MFA Attempts"),
+
     // 권한이 없음
     FORBIDDEN_ERROR(403, "G008", "Forbidden Exception"),
 

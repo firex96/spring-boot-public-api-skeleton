@@ -2,11 +2,13 @@ package com.rex.api.pub.skeleton.service.auth
 
 import com.rex.api.pub.skeleton.client.social.SocialOAuth2Client
 import com.rex.api.pub.skeleton.dto.auth.IssuedSessionDto
+import com.rex.api.pub.skeleton.dto.auth.LoginOutcomeDto
 import com.rex.api.pub.skeleton.dto.auth.OAuth2TokenResponse
 import com.rex.api.pub.skeleton.dto.auth.SocialUserInfo
 import com.rex.api.pub.skeleton.dto.auth.TokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.UserDto
 import com.rex.api.pub.skeleton.dto.auth.UserSocialAccountDto
+import com.rex.api.pub.skeleton.enums.auth.MfaOrigin
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.enums.auth.UserStatus
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
@@ -14,10 +16,12 @@ import com.rex.api.pub.skeleton.exception.auth.ForbiddenException
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
+import com.rex.api.pub.skeleton.service.mfa.MfaChallengeBizService
 import com.rex.api.pub.skeleton.service.security.LoginAttemptBizService
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -33,11 +37,18 @@ class SocialAuthBizServiceLoginProtectionTest : BehaviorSpec({
     val client = mockk<SocialOAuth2Client>()
     val userEntityService = mockk<UserEntityService>(relaxUnitFun = true)
     val userSocialAccountEntityService = mockk<UserSocialAccountEntityService>(relaxUnitFun = true)
-    val sessionIssueBizService = mockk<SessionIssueBizService>()
     val loginAttemptBizService = mockk<LoginAttemptBizService>(relaxUnitFun = true)
     val auditBizService = mockk<AuditBizService>(relaxUnitFun = true)
+    val mfaChallengeBizService = mockk<MfaChallengeBizService>()
     val service =
-        SocialAuthBizService(listOf(client), userEntityService, userSocialAccountEntityService, sessionIssueBizService, loginAttemptBizService, auditBizService)
+        SocialAuthBizService(
+            listOf(client),
+            userEntityService,
+            userSocialAccountEntityService,
+            loginAttemptBizService,
+            mfaChallengeBizService,
+            auditBizService,
+        )
 
     val ip = "203.0.113.10"
     val now = LocalDateTime.now()
@@ -64,16 +75,16 @@ class SocialAuthBizServiceLoginProtectionTest : BehaviorSpec({
         every { loginAttemptBizService.accountLockedException(any()) } answers {
             AccountLockedException("계정이 잠겼습니다. ${loginAttemptBizService.getRemainingLockTime(firstArg())}초 후 다시 시도하세요")
         }
-        every { sessionIssueBizService.issue(user, any(), any(), any()) } returns
-            IssuedSessionDto("session-1", TokenResponseDto(accessToken = "a", refreshToken = "r", expiresIn = 3600L))
+        every { mfaChallengeBizService.afterFirstFactor(user, any(), SocialProvider.GOOGLE, any(), any(), any()) } returns
+            LoginOutcomeDto.Tokens(IssuedSessionDto("session-1", TokenResponseDto(accessToken = "a", refreshToken = "r", expiresIn = 3600L)))
     }
 
     Given("SP-1 차단된 IP") {
         every { loginAttemptBizService.isIpBlocked(ip) } returns true
 
         Then("ForbiddenException — 세션을 만들지 않고 실패 감사를 남긴다") {
-            shouldThrow<ForbiddenException> { service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", ip) }
-            verify(exactly = 0) { sessionIssueBizService.issue(any(), any(), any(), any()) }
+            shouldThrow<ForbiddenException> { service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", ip, MfaOrigin.API_SOCIAL) }
+            verify(exactly = 0) { mfaChallengeBizService.afterFirstFactor(any(), any(), any(), any(), any(), any()) }
             verify(exactly = 1) { auditBizService.logSocialLoginFailure("GOOGLE", "g-1", ip, "agent", "차단된 IP") }
         }
     }
@@ -83,23 +94,32 @@ class SocialAuthBizServiceLoginProtectionTest : BehaviorSpec({
         every { loginAttemptBizService.getRemainingLockTime("user1") } returns 600L
 
         Then("AccountLockedException — 세션을 만들지 않는다") {
-            shouldThrow<AccountLockedException> { service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", ip) }
-            verify(exactly = 0) { sessionIssueBizService.issue(any(), any(), any(), any()) }
+            shouldThrow<AccountLockedException> { service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", ip, MfaOrigin.API_SOCIAL) }
+            verify(exactly = 0) { mfaChallengeBizService.afterFirstFactor(any(), any(), any(), any(), any(), any()) }
             verify(exactly = 1) { auditBizService.logSocialLoginFailure("GOOGLE", "g-1", ip, "agent", "잠긴 계정") }
         }
     }
 
     Given("SP-3 잠기지 않은 계정") {
-        Then("세션을 발급한다 — 로그인 실패 카운터는 건드리지 않는다") {
-            service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", ip).accessToken shouldBe "a"
+        Then("소셜 출처로 관문에 넘긴다 — 로그인 실패 카운터는 올리지 않는다") {
+            service.socialLogin(
+                SocialProvider.GOOGLE,
+                "code",
+                null,
+                "WEB",
+                "agent",
+                ip,
+                MfaOrigin.API_SOCIAL,
+            ).shouldBeInstanceOf<LoginOutcomeDto.Tokens>().session.tokens.accessToken shouldBe
+                "a"
+            verify(exactly = 1) { mfaChallengeBizService.afterFirstFactor(user, MfaOrigin.API_SOCIAL, SocialProvider.GOOGLE, "WEB", "agent", ip) }
             verify(exactly = 0) { loginAttemptBizService.recordFailedAttempt(any(), any()) }
-            verify(exactly = 0) { loginAttemptBizService.clearAttempts(any(), any()) }
         }
     }
 
     Given("SP-4 IP 를 모르는 요청") {
         Then("IP 차단 조회 없이 잠금만 본다") {
-            service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", null)
+            service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", null, MfaOrigin.API_SOCIAL)
             verify(exactly = 0) { loginAttemptBizService.isIpBlocked(any()) }
             verify(exactly = 1) { loginAttemptBizService.isUserLocked("user1") }
         }

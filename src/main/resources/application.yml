@@ -142,6 +142,16 @@ jwt:
   access-token-expiration: 3600      # 1시간 (초)
   refresh-token-expiration: 604800   # 7일 (초)
 
+# 2차 인증(TOTP) — 시크릿 암호화 키는 논리 키 mfa-secret-encryption-key(base64 32바이트). 기본값을 두지 않는다.
+# 로컬도 환경변수 MFA_SECRET_ENCRYPTION_KEY 로 준다(README 「로컬 실행」) — 애플리케이션 yml 에 값을 적지 않는다
+mfa:
+  secret-encryption-key: ${mfa-secret-encryption-key}
+  issuer: Skeleton
+  challenge-ttl-seconds: 300   # 1단계 통과 뒤 2단계를 마칠 때까지
+  max-challenge-failures: 5    # challenge 하나에서 틀릴 수 있는 횟수
+  manage-max-failures: 5       # 등록·관리 API 코드 확인 실패 한도
+  manage-lock-seconds: 900
+
 # 보안 설정
 security:
   login-protection:

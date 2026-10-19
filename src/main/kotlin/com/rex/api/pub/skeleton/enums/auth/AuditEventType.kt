@@ -17,6 +17,12 @@ enum class AuditEventType {
     SOCIAL_ACCOUNT_LINKED,
     SOCIAL_ACCOUNT_UNLINKED,
 
+    // 2차 인증 관련
+    MFA_ENROLLED,
+    MFA_DISABLED,
+    MFA_CHALLENGE_SUCCESS,
+    MFA_CHALLENGE_FAILURE,
+
     // 계정 관련
     ACCOUNT_CREATED,
     ACCOUNT_UPDATED,

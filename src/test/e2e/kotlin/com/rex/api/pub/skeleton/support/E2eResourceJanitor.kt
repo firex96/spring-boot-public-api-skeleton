@@ -94,6 +94,8 @@ class E2eResourceJanitor(
             "oauth2_authorization_codes",
             "oauth2_access_tokens",
             "oauth2_refresh_tokens",
+            "user_mfa_credentials",
+            "user_mfa_recovery_codes",
         )
         private val CLIENT_CHILD_TABLES = listOf("oauth2_authorization_codes", "oauth2_access_tokens", "oauth2_refresh_tokens")
     }

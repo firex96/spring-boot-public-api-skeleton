@@ -395,6 +395,33 @@ JSON 직렬화/역직렬화 오류입니다.
 
 ---
 
+### MfaException
+
+2차 인증(TOTP) 실패. 상태와 구분 코드는 사유마다 다르다(`ErrorCode.MFA_*`). 본문은 `ErrorResponseModel` 이다.
+
+| 구분 코드 | HTTP | 사유 |
+|---|---|---|
+| `MFA001` | 400 | 코드가 틀렸다(같은 구간의 코드를 다시 낸 경우 포함). 로그인 2단계면 계정 잠금 카운터가 오른다 |
+| `MFA002` | 401 | challenge 가 없다 — 만료(5분)·이미 사용·실패 한도(5회) 초과·다른 완료 경로의 challenge. 다시 로그인한다 |
+| `MFA003` | 409 | 이미 켜져 있다(setup·activate) |
+| `MFA004` | 409 | 꺼져 있다(disable) |
+| `MFA005` | 404 | 등록을 시작하지 않았다(setup 없이 activate) |
+| `MFA006` | 429 | 등록·관리 API 의 코드를 5번 틀렸다 — 15분 동안 막는다(로그인 잠금과 별개) |
+
+**응답 예시**:
+```json
+{
+  "status": 400,
+  "divisionCode": "MFA001",
+  "reason": "코드가 올바르지 않습니다",
+  "resultMessage": "Invalid MFA Code"
+}
+```
+
+로그인 2단계에서 실패 누적으로 계정이 잠기면 `MFA001` 대신 `AccountLockedException`(423, `AUTH001`)이다.
+
+---
+
 ## OAuth2 에러
 
 OAuth2 에러는 RFC 6749 표준 에러 코드를 사용합니다.

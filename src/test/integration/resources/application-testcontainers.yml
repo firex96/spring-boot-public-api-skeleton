@@ -16,6 +16,7 @@ db-admin-password: test
 redis-host: localhost
 core-api-url: http://localhost:8080
 jwt-secret: test-secret-key-for-jwt-token-signing-must-be-at-least-32-chars
+mfa-secret-encryption-key: dGVzdC1tZmEtc2VjcmV0LWVuY3J5cHRpb24ta2V5LTE= # 테스트 전용(32바이트)
 oidc-issuer: http://localhost:8888
 oauth2-redirect-base-url: http://localhost:8888
 browser-session-cookie-secure: false # RANDOM_PORT http 테스트가 세션 쿠키를 되보내야 한다

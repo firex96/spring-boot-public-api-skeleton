@@ -145,12 +145,66 @@ Authorization: Bearer {access_token}
 }
 ```
 
+#### Response `202 Accepted` — 2차 인증을 켠 계정
+
+세션을 만들지 않고 2단계 challenge 를 준다. `POST /auth/login/mfa` 로 마친다.
+
+```json
+{
+  "mfaToken": "q3Hc…(43자)",
+  "expiresIn": 300,
+  "methods": ["totp"]
+}
+```
+
+
 #### Errors
 
 | 코드 | 설명 |
 |------|------|
 | 401 | 인증 실패 (잘못된 아이디/비밀번호) |
 | 423 | 계정 잠금 (로그인 시도 초과) |
+
+---
+
+### POST /auth/login/mfa
+
+로그인 2단계 — `POST /auth/login`·`POST /auth/oauth2/{provider}/login` 이 준 `202` challenge 를 마친다. 성공하면 challenge 는 사라진다(1회).
+
+#### Request
+
+```json
+{
+  "mfaToken": "q3Hc…",
+  "method": "totp",
+  "code": "123456"
+}
+```
+
+#### Response `200 OK`
+
+`POST /auth/login` 의 `200` 과 같은 `TokenResponseModel`.
+
+#### Errors
+
+| 코드 | 설명 |
+|------|------|
+| 400 `MFA001` | 코드 불일치 — 실패는 계정 잠금 카운터를 올리고, challenge 하나에서 5번 틀리면 challenge 가 지워진다 |
+| 401 `MFA002` | challenge 없음(만료·사용·한도 초과) — 다시 로그인 |
+| 423 | 계정 잠금 — 코드를 보기 전에 확인한다 |
+
+---
+
+### 2차 인증 등록·관리 (`/user/mfa`, Bearer)
+
+| 메서드·경로 | 요청 | 응답 | 오류 |
+|---|---|---|---|
+| `GET /user/mfa` | — | `{"enabled": true, "recoveryCodesLeft": 0}` | — |
+| `POST /user/mfa/totp/setup` | — | `{"secret": "JBSW Y3DP …", "otpauthUri": "otpauth://totp/Skeleton:user1?secret=…&issuer=Skeleton&digits=6&period=30&algorithm=SHA1"}` — 아직 켜지지 않는다 | 409 `MFA003` |
+| `POST /user/mfa/totp/activate` | `{"code": "123456"}` | `{"recoveryCodes": []}` — 켜고 **다른 세션을 모두 폐기**한다 | 400 `MFA001` · 404 `MFA005` · 409 `MFA003` · 429 `MFA006` |
+| `POST /user/mfa/disable` | `{"method": "totp", "code": "123456"}` | `204` | 400 · 409 `MFA004` · 429 |
+
+재인증은 비밀번호가 아니라 현재 코드다(소셜 전용 사용자는 비밀번호가 없다). 관리 API 의 실패는 로그인 잠금과 별개로 5번/15분 제한이다.
 
 #### cURL 예시
 

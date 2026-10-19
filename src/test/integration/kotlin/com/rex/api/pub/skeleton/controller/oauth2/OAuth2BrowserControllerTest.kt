@@ -4,11 +4,13 @@ import com.ninjasquad.springmockk.MockkBean
 import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
 import com.rex.api.pub.skeleton.config.security.browser.AuthorizationRequestStore
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionAuthenticator
+import com.rex.api.pub.skeleton.config.security.browser.MfaPendingTokenStore
 import com.rex.api.pub.skeleton.dto.oauth2.AuthorizationRequestDto
 import com.rex.api.pub.skeleton.enums.oauth2.AuthorizeNextStep
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
 import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
 import com.rex.api.pub.skeleton.fixture.OAuth2ClientFixture
+import com.rex.api.pub.skeleton.model.auth.BrowserLoginOutcomeModel
 import com.rex.api.pub.skeleton.model.auth.BrowserPrincipalModel
 import com.rex.api.pub.skeleton.model.oauth2.AuthorizationConsentModel
 import com.rex.api.pub.skeleton.service.mapping.AuthMappingService
@@ -59,6 +61,9 @@ class OAuth2BrowserControllerTest(
     @MockkBean
     lateinit var browserSessionAuthenticator: BrowserSessionAuthenticator
 
+    @MockkBean(relaxUnitFun = true)
+    lateinit var mfaPendingTokenStore: MfaPendingTokenStore
+
     init {
         val principal = AuthenticatedUser(userId = 7L, sessionId = "session-7", groups = emptyList(), permissions = emptyList())
         val browserPrincipal = BrowserPrincipalModel(userId = 7L, sessionId = "session-7", groups = emptyList(), permissions = emptyList())
@@ -77,7 +82,7 @@ class OAuth2BrowserControllerTest(
 
         Given("POST /oauth2/login") {
             When("로그인에 성공하고 기다리던 authorize 요청이 세션에 있으면") {
-                every { authMappingService.loginForBrowser(any(), "203.0.113.10") } returns browserPrincipal
+                every { authMappingService.loginForBrowser(any(), "203.0.113.10") } returns BrowserLoginOutcomeModel.SignedIn(browserPrincipal)
                 justRun { browserSessionAuthenticator.signIn(any(), any(), browserPrincipal) }
 
                 Then("브라우저 세션에 로그인시키고 그 authorize URL 로 302 한다 — 대기 값은 한 번만 쓴다") {

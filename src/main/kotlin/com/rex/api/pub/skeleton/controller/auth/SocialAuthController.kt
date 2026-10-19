@@ -3,10 +3,12 @@ package com.rex.api.pub.skeleton.controller.auth
 import com.rex.api.pub.skeleton.config.security.AuthenticatedUser
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSecurityPaths
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionAuthenticator
+import com.rex.api.pub.skeleton.config.security.browser.MfaPendingTokenStore
+import com.rex.api.pub.skeleton.controller.auth.support.toResponseEntity
 import com.rex.api.pub.skeleton.dto.auth.SocialLoginRequestDto
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
+import com.rex.api.pub.skeleton.model.auth.BrowserLoginOutcomeModel
 import com.rex.api.pub.skeleton.model.auth.SocialAccountModel
-import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
 import com.rex.api.pub.skeleton.service.mapping.SocialAuthMappingService
 import com.rex.api.pub.skeleton.util.ClientIpResolver
 import io.swagger.v3.oas.annotations.Operation
@@ -35,6 +37,7 @@ class SocialAuthController(
     private val socialAuthMappingService: SocialAuthMappingService,
     private val clientIpResolver: ClientIpResolver,
     private val browserSessionAuthenticator: BrowserSessionAuthenticator,
+    private val mfaPendingTokenStore: MfaPendingTokenStore,
 ) {
     @Operation(
         summary = "소셜 로그인 시작",
@@ -80,7 +83,7 @@ class SocialAuthController(
         }
 
         // 로그인 처리 — 토큰은 URL 에 싣지 않는다. 서버에 맡기고(교환 대기) 브라우저 세션에 로그인시킨 뒤 쿼리 없이 리다이렉트한다
-        val principal =
+        val outcome =
             socialAuthMappingService.socialLoginForBrowser(
                 provider = provider,
                 code = code,
@@ -88,8 +91,17 @@ class SocialAuthController(
                 deviceInfo = httpRequest.getHeader("User-Agent"),
                 ipAddress = clientIpResolver.resolve(httpRequest),
             )
-        browserSessionAuthenticator.signIn(httpRequest, httpResponse, principal)
-        httpResponse.sendRedirect(BrowserSecurityPaths.DEMO_CALLBACK)
+        when (outcome) {
+            is BrowserLoginOutcomeModel.SignedIn -> {
+                browserSessionAuthenticator.signIn(httpRequest, httpResponse, outcome.principal)
+                httpResponse.sendRedirect(BrowserSecurityPaths.DEMO_CALLBACK)
+            }
+            // 2차 인증 — 세션에는 challenge 토큰만 두고(로그인시키지 않는다) 세션 ID 를 바꿔 2단계 화면으로
+            is BrowserLoginOutcomeModel.MfaRequired -> {
+                mfaPendingTokenStore.begin(httpRequest, outcome.mfaToken)
+                httpResponse.sendRedirect(BrowserSecurityPaths.AUTH_MFA)
+            }
+        }
     }
 
     /**
@@ -102,17 +114,17 @@ class SocialAuthController(
         @PathVariable provider: SocialProvider,
         @Valid @RequestBody request: SocialLoginRequestDto,
         httpRequest: HttpServletRequest,
-    ): ResponseEntity<TokenResponseModel> {
-        val ipAddress = clientIpResolver.resolve(httpRequest)
-        val tokens =
+    ): ResponseEntity<Any> {
+        val outcome =
             socialAuthMappingService.socialLogin(
                 provider = provider,
                 code = request.code,
                 deviceType = request.deviceType,
                 deviceInfo = request.deviceInfo,
-                ipAddress = ipAddress,
+                ipAddress = clientIpResolver.resolve(httpRequest),
             )
-        return ResponseEntity.ok(tokens)
+        // 2차 인증을 켠 계정은 202 challenge — POST /auth/login/mfa 로 마친다
+        return outcome.toResponseEntity()
     }
 
     @Operation(summary = "소셜 계정 연동", description = "기존 계정에 소셜 계정을 연동합니다")

@@ -2,8 +2,10 @@ package com.rex.api.pub.skeleton.controller.auth
 
 import com.ninjasquad.springmockk.MockkBean
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionAuthenticator
+import com.rex.api.pub.skeleton.config.security.browser.MfaPendingTokenStore
 import com.rex.api.pub.skeleton.dto.auth.SocialLoginRequestDto
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
+import com.rex.api.pub.skeleton.model.auth.LoginOutcomeModel
 import com.rex.api.pub.skeleton.model.auth.TokenResponseModel
 import com.rex.api.pub.skeleton.service.mapping.SocialAuthMappingService
 import com.rex.api.pub.skeleton.support.ControllerTestConfiguration
@@ -49,6 +51,9 @@ class SocialAuthControllerTest(
 
     @MockkBean
     lateinit var browserSessionAuthenticator: BrowserSessionAuthenticator
+
+    @MockkBean(relaxUnitFun = true)
+    lateinit var mfaPendingTokenStore: MfaPendingTokenStore
 
     init {
         // ============================================
@@ -143,7 +148,7 @@ class SocialAuthControllerTest(
                         deviceInfo = any(),
                         ipAddress = "203.0.113.10",
                     )
-                } returns expectedTokens
+                } returns LoginOutcomeModel.Tokens(expectedTokens)
 
                 Then("200 OK와 토큰을 반환한다") {
                     mockMvc.postJson("/auth/oauth2/GOOGLE/login", loginRequest)
