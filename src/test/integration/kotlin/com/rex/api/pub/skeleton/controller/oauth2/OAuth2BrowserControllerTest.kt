@@ -123,7 +123,7 @@ class OAuth2BrowserControllerTest(
             afterTest { SecurityContextHolder.clearContext() }
 
             When("deny 요청의 redirect_uri 가 등록되지 않은 것이면") {
-                every { oAuth2AuthorizationMappingService.consent(any(), 7L, false) } throws
+                every { oAuth2AuthorizationMappingService.consent(any(), 7L, any(), false) } throws
                     OAuth2Exception(OAuth2AuthorizationBizService.ERROR_INVALID_REQUEST, "유효하지 않은 redirect_uri입니다")
 
                 Then("400 오류 화면, Location 없음") {
@@ -141,7 +141,7 @@ class OAuth2BrowserControllerTest(
             }
 
             When("approve 요청의 client 가 잘못되면") {
-                every { oAuth2AuthorizationMappingService.consent(any(), 7L, true) } throws
+                every { oAuth2AuthorizationMappingService.consent(any(), 7L, any(), true) } throws
                     OAuth2Exception(OAuth2AuthorizationBizService.ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
 
                 Then("401 오류 화면, Location 없음") {
@@ -158,7 +158,7 @@ class OAuth2BrowserControllerTest(
             }
 
             When("검증을 통과한 deny 요청이면") {
-                every { oAuth2AuthorizationMappingService.consent(any(), 7L, false) } returns
+                every { oAuth2AuthorizationMappingService.consent(any(), 7L, any(), false) } returns
                     OAuth2ClientFixture.authorizeDecision(AuthorizeNextStep.ERROR, error = OAuth2AuthorizationBizService.ERROR_ACCESS_DENIED, errorDescription = "사용자가 동의를 거부했습니다")
 
                 Then("검증된 redirect_uri 로 error=access_denied 리다이렉트한다") {
@@ -177,7 +177,8 @@ class OAuth2BrowserControllerTest(
             }
 
             When("검증을 통과한 approve 요청이면") {
-                every { oAuth2AuthorizationMappingService.consent(any(), 7L, true) } returns OAuth2ClientFixture.authorizeDecision(AuthorizeNextStep.CODE_ISSUED, code = "code-123")
+                every { oAuth2AuthorizationMappingService.consent(any(), 7L, any(), true) } returns
+                    OAuth2ClientFixture.authorizeDecision(AuthorizeNextStep.CODE_ISSUED, code = "code-123")
 
                 Then("검증된 redirect_uri 로 code·state 를 붙여 리다이렉트한다") {
                     mockMvc.post("/oauth2/consent") {

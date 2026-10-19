@@ -15,6 +15,7 @@ import com.rex.api.pub.skeleton.enums.oauth2.AuthorizeNextStep
 import com.rex.api.pub.skeleton.exception.oauth2.OAuth2Exception
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.oauth2.OAuth2TokenEntityService
+import com.rex.api.pub.skeleton.service.auth.SessionCacheBizService
 import com.rex.api.pub.skeleton.service.oidc.IdTokenBizService
 import com.rex.api.pub.skeleton.util.logger
 import io.jsonwebtoken.Jwts
@@ -42,6 +43,7 @@ class OAuth2AuthorizationBizService(
     private val userEntityService: UserEntityService,
     private val jwtProperties: JwtProperties,
     private val idTokenBizService: IdTokenBizService,
+    private val sessionCacheBizService: SessionCacheBizService,
 ) {
     private val log = logger()
 
@@ -64,6 +66,7 @@ class OAuth2AuthorizationBizService(
         const val ERROR_INVALID_REQUEST = "invalid_request"
         const val ERROR_UNAUTHORIZED_CLIENT = "unauthorized_client"
         const val ERROR_ACCESS_DENIED = "access_denied"
+        const val ERROR_LOGIN_REQUIRED = "login_required" // OIDC Core §3.1.2.6 — 사용자 인증이 필요하다
         const val ERROR_UNSUPPORTED_RESPONSE_TYPE = "unsupported_response_type"
         const val ERROR_INVALID_SCOPE = "invalid_scope"
         const val ERROR_INVALID_GRANT = "invalid_grant"
@@ -85,13 +88,15 @@ class OAuth2AuthorizationBizService(
      * 그 뒤의 오류(invalid_scope 등)는 검증된 redirect_uri 로 알릴 수 있으므로 `ERROR` 판정으로 돌려준다.
      */
     @Transactional(transactionManager = "authTransactionManager") // 인가 코드 저장이 auth 트랜잭션에 참여해야 한다 — primary 는 default TM
-    fun authorize(request: AuthorizationRequestDto, userId: Long?): AuthorizeDecisionDto {
+    fun authorize(request: AuthorizationRequestDto, userId: Long?, sessionId: String?): AuthorizeDecisionDto {
         val client = validateClientAndRedirectUri(request)
         return try {
             validateAuthorizationParameters(request, client)
+            // 인증 시각은 브라우저 세션이 가리키는 사용자 세션에서 읽는다 — 세션이 사라졌으면 로그인부터 다시
+            val authTime = sessionId?.let { authenticatedAtOf(it) }
             when {
-                userId == null -> decision(AuthorizeNextStep.LOGIN_REQUIRED)
-                client.isFirstParty -> decision(AuthorizeNextStep.CODE_ISSUED, code = issueAuthorizationCode(request, userId))
+                userId == null || authTime == null -> decision(AuthorizeNextStep.LOGIN_REQUIRED)
+                client.isFirstParty -> decision(AuthorizeNextStep.CODE_ISSUED, code = issueAuthorizationCode(request, userId, authTime))
                 else -> decision(AuthorizeNextStep.CONSENT_REQUIRED)
             }
         } catch (e: OAuth2Exception) {
@@ -101,12 +106,15 @@ class OAuth2AuthorizationBizService(
 
     /** `POST /oauth2/consent` 의 판정 — 거부는 `access_denied` 오류 판정, 승인은 코드 발급. */
     @Transactional(transactionManager = "authTransactionManager") // 인가 코드 저장이 auth 트랜잭션에 참여해야 한다 — primary 는 default TM
-    fun consent(request: AuthorizationRequestDto, userId: Long, approve: Boolean): AuthorizeDecisionDto {
+    fun consent(request: AuthorizationRequestDto, userId: Long, sessionId: String, approve: Boolean): AuthorizeDecisionDto {
         validateAuthorizationRequest(request)
         if (!approve) {
             return decision(AuthorizeNextStep.ERROR, error = ERROR_ACCESS_DENIED, errorDescription = "사용자가 동의를 거부했습니다")
         }
-        return decision(AuthorizeNextStep.CODE_ISSUED, code = issueAuthorizationCode(request, userId))
+        val authTime =
+            authenticatedAtOf(sessionId)
+                ?: return decision(AuthorizeNextStep.ERROR, error = ERROR_LOGIN_REQUIRED, errorDescription = "로그인 세션이 만료되었습니다")
+        return decision(AuthorizeNextStep.CODE_ISSUED, code = issueAuthorizationCode(request, userId, authTime))
     }
 
     /**
@@ -170,6 +178,7 @@ class OAuth2AuthorizationBizService(
         codeChallengeMethod: String?,
         state: String?,
         nonce: String?,
+        authTime: LocalDateTime,
     ): String {
         val code = generateAuthorizationCode()
         oAuth2TokenEntityService.createAuthorizationCode(
@@ -183,6 +192,7 @@ class OAuth2AuthorizationBizService(
             state = state,
             nonce = nonce,
             expiresAt = LocalDateTime.now().plusSeconds(AUTHORIZATION_CODE_VALIDITY_SECONDS),
+            authTime = authTime,
         )
         return code
     }
@@ -267,7 +277,7 @@ class OAuth2AuthorizationBizService(
         val client = oAuth2ClientBizService.getActiveClient(clientId)
             ?: throw OAuth2Exception(ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
 
-        return issueTokens(client = client, userId = authCode.userId, scopes = authCode.scopes, nonce = authCode.nonce)
+        return issueTokens(client = client, userId = authCode.userId, scopes = authCode.scopes, nonce = authCode.nonce, authTime = authCode.authTime)
     }
 
     @Transactional(transactionManager = "authTransactionManager") // auth 리포지토리 읽기·쓰기가 한 트랜잭션(커넥션 1개)에 참여해야 한다 — primary 는 default TM
@@ -396,7 +406,11 @@ class OAuth2AuthorizationBizService(
 
     // ===== Private =====
 
-    private fun issueAuthorizationCode(request: AuthorizationRequestDto, userId: Long): String =
+    /** 사용자 세션의 인증 완료 시각 — 세션이 없거나 폐기됐으면 null. */
+    private fun authenticatedAtOf(sessionId: String): LocalDateTime? =
+        sessionCacheBizService.getSession(sessionId)?.takeUnless { it.revoked }?.authenticatedAt?.let { LocalDateTime.ofInstant(it, ZoneId.systemDefault()) }
+
+    private fun issueAuthorizationCode(request: AuthorizationRequestDto, userId: Long, authTime: LocalDateTime): String =
         createAuthorizationCode(
             clientId = request.clientId,
             userId = userId,
@@ -406,6 +420,7 @@ class OAuth2AuthorizationBizService(
             codeChallengeMethod = request.codeChallengeMethod,
             state = request.state,
             nonce = request.nonce,
+            authTime = authTime,
         )
 
     private fun decision(
@@ -422,6 +437,7 @@ class OAuth2AuthorizationBizService(
         userId: Long?,
         scopes: String?,
         nonce: String? = null,
+        authTime: LocalDateTime? = null,
     ): OidcTokenResponseDto {
         val accessTokenId = UUID.randomUUID().toString()
         val refreshTokenId = UUID.randomUUID().toString()
@@ -468,6 +484,8 @@ class OAuth2AuthorizationBizService(
                         nonce = nonce,
                         scopes = scopeSet,
                         accessTokenHash = idTokenBizService.computeAtHash(accessToken),
+                        // 배포 전에 만든 코드(auth_time NULL)는 발급 시각으로 대체한다
+                        authTime = (authTime ?: now).atZone(ZoneId.systemDefault()).toInstant(),
                     )
             }
         }

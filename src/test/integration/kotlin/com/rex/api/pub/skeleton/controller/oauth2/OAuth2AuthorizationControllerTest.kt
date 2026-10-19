@@ -64,7 +64,7 @@ class OAuth2AuthorizationControllerTest(
         // ============================================
         Given("GET /oauth2/authorize - client·redirect_uri 검증") {
             When("client 검증이 invalid_client 로 실패하면") {
-                every { oAuth2AuthorizationMappingService.authorize(any(), null) } throws
+                every { oAuth2AuthorizationMappingService.authorize(any(), null, null) } throws
                     OAuth2Exception(OAuth2AuthorizationBizService.ERROR_INVALID_CLIENT, "유효하지 않은 클라이언트입니다")
 
                 Then("401 JSON 으로 끝나고 Location 헤더가 없다 (요청 redirect_uri 로 리다이렉트하지 않는다)") {
@@ -81,7 +81,7 @@ class OAuth2AuthorizationControllerTest(
             }
 
             When("client 는 유효하지만 scope 가 잘못되면") {
-                every { oAuth2AuthorizationMappingService.authorize(any(), null) } returns
+                every { oAuth2AuthorizationMappingService.authorize(any(), null, null) } returns
                     OAuth2ClientFixture.authorizeDecision(
                         AuthorizeNextStep.ERROR,
                         error = OAuth2AuthorizationBizService.ERROR_INVALID_SCOPE,
@@ -108,7 +108,7 @@ class OAuth2AuthorizationControllerTest(
             }
 
             When("로그인하지 않은 사용자면") {
-                every { oAuth2AuthorizationMappingService.authorize(any(), null) } returns OAuth2ClientFixture.authorizeDecision(AuthorizeNextStep.LOGIN_REQUIRED)
+                every { oAuth2AuthorizationMappingService.authorize(any(), null, null) } returns OAuth2ClientFixture.authorizeDecision(AuthorizeNextStep.LOGIN_REQUIRED)
 
                 Then("로그인 화면으로 302 하고, 돌아올 authorize URL 은 쿼리가 아니라 세션에 둔다") {
                     val result =

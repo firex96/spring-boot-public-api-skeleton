@@ -21,6 +21,7 @@ class IdTokenBizService(
         nonce: String? = null,
         scopes: Set<String> = emptySet(),
         accessTokenHash: String? = null,
+        authTime: Instant,
     ): String {
         val now = Instant.now()
         val expiration = now.plusSeconds(oidcProperties.idTokenExpiration)
@@ -31,7 +32,7 @@ class IdTokenBizService(
             "aud" to clientId,
             "iat" to now.epochSecond,
             "exp" to expiration.epochSecond,
-            "auth_time" to now.epochSecond,
+            "auth_time" to authTime.epochSecond, // 발급 시각이 아니라 사용자가 인증한 시각(OIDC Core §2)
         )
 
         // nonce가 있으면 포함

@@ -31,6 +31,7 @@ class OAuth2AuthorizationBizServiceUserInfoTest : BehaviorSpec({
             userEntityService = mockk<UserEntityService>(),
             jwtProperties = JwtProperties(secret = secret),
             idTokenBizService = mockk<IdTokenBizService>(),
+            sessionCacheBizService = mockk(),
         )
 
     fun jwt(jti: String, key: String = secret, expiresAt: Instant = Instant.now().plusSeconds(600)): String =

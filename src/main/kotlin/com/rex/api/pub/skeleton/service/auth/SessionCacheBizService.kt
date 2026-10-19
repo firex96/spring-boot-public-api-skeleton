@@ -53,17 +53,21 @@ class SessionCacheBizService(
         // 1. Redis 캐시 조회
         val cached = redisTemplate.opsForValue().get(key)
         if (cached != null) {
-            return try {
-                val session = objectMapper.readValue(cached, SessionInfo::class.java)
+            val session =
+                try {
+                    objectMapper.readValue(cached, SessionInfo::class.java)
+                } catch (e: Exception) {
+                    // 읽지 못하는 캐시(배포 전 형식 등)는 버리고 DB 에서 다시 읽는다 — null 을 돌려주면 살아 있는 세션이 인증 실패가 된다
+                    log.warn("Failed to parse cached session, reloading from DB: {}", sessionId, e)
+                    redisTemplate.delete(key)
+                    null
+                }
+            if (session != null) {
                 if (session.revoked || session.expiresAt.isBefore(Instant.now())) {
                     deleteSession(sessionId)
-                    null
-                } else {
-                    session
+                    return null
                 }
-            } catch (e: Exception) {
-                log.warn("Failed to parse cached session: {}", sessionId, e)
-                null
+                return session
             }
         }
 
@@ -201,6 +205,7 @@ class SessionCacheBizService(
             ipAddress = session.ipAddress,
             issuedAt = session.accessTokenIssuedAt.atZone(ZoneId.systemDefault()).toInstant(),
             expiresAt = session.accessTokenExpiresAt.atZone(ZoneId.systemDefault()).toInstant(),
+            authenticatedAt = session.createdAt.atZone(ZoneId.systemDefault()).toInstant(),
             revoked = session.isRevoked,
         )
 }

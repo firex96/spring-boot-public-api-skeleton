@@ -55,6 +55,10 @@ class OAuth2AuthorizationCodeEntity(
     @Column(name = "expires_at", nullable = false)
     var expiresAt: LocalDateTime,
 
+    // 사용자가 실제로 인증한 시각 — id_token auth_time 의 원천. 배포 전 발급분은 NULL
+    @Column(name = "auth_time")
+    var authTime: LocalDateTime? = null,
+
     @Column(name = "is_used", nullable = false)
     var isUsed: Boolean = false,
 

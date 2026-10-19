@@ -111,6 +111,7 @@ class SecurityAuditorContextIntegrationTest(
                 ipAddress = null,
                 issuedAt = Instant.now(),
                 expiresAt = Instant.now().plusSeconds(3600),
+                authenticatedAt = Instant.now(),
             )
     }
 

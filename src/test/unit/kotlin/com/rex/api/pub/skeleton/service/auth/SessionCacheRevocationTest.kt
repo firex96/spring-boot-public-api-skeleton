@@ -63,6 +63,18 @@ class SessionCacheRevocationTest : BehaviorSpec({
         }
     }
 
+    Given("SR-L 캐시에 읽지 못하는 옛 형식(배포 전 SessionInfo — authenticatedAt 없음)이 있다") {
+        every { valueOperations.get("session:{s1}") } returns
+            """{"userId":7,"sessionId":"s1","groups":["USER"],"permissions":[],"deviceType":"WEB","ipAddress":null,"issuedAt":"2026-10-19T00:00:00Z","expiresAt":"2999-01-01T00:00:00Z","revoked":false}"""
+        every { redisTemplate.execute(any<RedisScript<Long>>(), any<List<String>>(), *anyVararg()) } returns 1L
+
+        Then("그 키를 지우고 DB 에서 다시 읽어 세션을 돌려준다 — 인증 실패(null)로 끝내지 않는다") {
+            service.getSession("s1")?.sessionId shouldBe "s1"
+            verify(exactly = 1) { redisTemplate.delete("session:{s1}") }
+            verify(exactly = 1) { userSessionEntityService.getUnrevokedBySessionId("s1") }
+        }
+    }
+
     Given("SR-2 표식이 없으면") {
         every { redisTemplate.execute(any<RedisScript<Long>>(), any<List<String>>(), *anyVararg()) } returns 1L
 

@@ -33,6 +33,7 @@ class SessionCacheRevocationIntegrationTest(
             ipAddress = null,
             issuedAt = Instant.now(),
             expiresAt = Instant.now().plusSeconds(600),
+            authenticatedAt = Instant.now(),
         )
 
     Given("SRI-1 폐기되지 않은 세션") {

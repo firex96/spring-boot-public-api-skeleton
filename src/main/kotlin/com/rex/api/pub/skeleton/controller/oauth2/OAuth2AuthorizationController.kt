@@ -70,7 +70,7 @@ class OAuth2AuthorizationController(
             )
         // RFC 6749 §4.1.2.1 — client·redirect_uri 가 잘못되면 리다이렉트하지 않는다. 그 실패는 예외로 올라와 @ExceptionHandler 가 JSON(401/400)으로 끝낸다
         // user 는 브라우저 세션의 principal 이다 — 이 경로는 브라우저 체인이라 Bearer 를 읽지 않는다
-        val decision = oAuth2AuthorizationMappingService.authorize(request, user?.userId)
+        val decision = oAuth2AuthorizationMappingService.authorize(request, user?.userId, user?.sessionId)
         if (decision.nextStep == AuthorizeNextStep.LOGIN_REQUIRED) {
             // 돌아올 곳은 서버가 검증된 파라미터로 다시 조립해 세션에 둔다 — 쿼리로 받은 복귀 주소를 쓰지 않는다
             authorizationRequestStore.save(httpRequest, AuthorizeRedirectUrlBuilder.authorizeUrl(request))

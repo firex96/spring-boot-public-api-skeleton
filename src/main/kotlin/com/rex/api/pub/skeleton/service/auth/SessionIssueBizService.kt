@@ -76,6 +76,7 @@ class SessionIssueBizService(
                 ipAddress = ipAddress,
                 issuedAt = now.atZone(ZoneId.systemDefault()).toInstant(),
                 expiresAt = accessTokenExpiration.atZone(ZoneId.systemDefault()).toInstant(),
+                authenticatedAt = now.atZone(ZoneId.systemDefault()).toInstant(),
             ),
         )
         userEntityService.updateLastLoginAt(user.id, now)

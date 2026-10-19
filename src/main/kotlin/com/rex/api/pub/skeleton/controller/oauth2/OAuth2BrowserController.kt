@@ -108,7 +108,7 @@ class OAuth2BrowserController(
         @AuthenticationPrincipal user: AuthenticatedUser,
     ): String {
         val authorizationRequest = consentRequest(clientId, redirectUri, scope, state, codeChallenge, codeChallengeMethod, nonce)
-        val decision = oAuth2AuthorizationMappingService.consent(authorizationRequest, user.userId, approve)
+        val decision = oAuth2AuthorizationMappingService.consent(authorizationRequest, user.userId, user.sessionId, approve)
         return "redirect:" + AuthorizeRedirectUrlBuilder.byDecision(decision, authorizationRequest)
     }
 

@@ -14,6 +14,7 @@ data class OAuth2AuthorizationCodeDto(
     val state: String?,
     val nonce: String?,
     val expiresAt: LocalDateTime,
+    val authTime: LocalDateTime?,
     val isUsed: Boolean,
     val usedAt: LocalDateTime?,
     val createdAt: LocalDateTime,

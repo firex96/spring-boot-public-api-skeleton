@@ -17,11 +17,12 @@ class OAuth2AuthorizationMappingService(
     private val oAuth2AuthorizationBizService: OAuth2AuthorizationBizService,
     private val mapper: OAuth2Mapper,
 ) {
-    fun authorize(request: AuthorizationRequestDto, userId: Long?): AuthorizeDecisionModel =
-        mapper.toAuthorizeDecisionModel(oAuth2AuthorizationBizService.authorize(request, userId))
+    /** [sessionId] 는 브라우저 principal 의 사용자 세션 — 인가 코드의 `auth_time` 을 여기서 읽는다. */
+    fun authorize(request: AuthorizationRequestDto, userId: Long?, sessionId: String?): AuthorizeDecisionModel =
+        mapper.toAuthorizeDecisionModel(oAuth2AuthorizationBizService.authorize(request, userId, sessionId))
 
-    fun consent(request: AuthorizationRequestDto, userId: Long, approve: Boolean): AuthorizeDecisionModel =
-        mapper.toAuthorizeDecisionModel(oAuth2AuthorizationBizService.consent(request, userId, approve))
+    fun consent(request: AuthorizationRequestDto, userId: Long, sessionId: String, approve: Boolean): AuthorizeDecisionModel =
+        mapper.toAuthorizeDecisionModel(oAuth2AuthorizationBizService.consent(request, userId, sessionId, approve))
 
     fun getConsentInfo(request: AuthorizationRequestDto): AuthorizationConsentModel {
         val client = oAuth2AuthorizationBizService.validateAuthorizationRequest(request)

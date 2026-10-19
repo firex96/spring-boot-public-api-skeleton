@@ -41,6 +41,7 @@ class OAuth2TokenEntityService(
         state: String?,
         nonce: String?,
         expiresAt: LocalDateTime,
+        authTime: LocalDateTime,
     ) {
         oAuth2AuthorizationCodeRepository.save(
             OAuth2AuthorizationCodeEntity(
@@ -54,6 +55,7 @@ class OAuth2TokenEntityService(
                 state = state,
                 nonce = nonce,
                 expiresAt = expiresAt,
+                authTime = authTime,
             ),
         )
     }
