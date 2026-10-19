@@ -34,6 +34,7 @@ class AuthBizServiceRevokeAllTest : BehaviorSpec({
             sessionCacheBizService,
             mockk<PasswordEncoder>(),
             mockk<LoginAttemptBizService>(),
+            mockk<SessionIssueBizService>(),
         )
 
     fun record(sessionId: String) =

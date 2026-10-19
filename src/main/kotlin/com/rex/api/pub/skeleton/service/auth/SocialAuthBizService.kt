@@ -11,14 +11,12 @@ import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.enums.auth.UserStatus
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
-import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserGroupEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
 import com.rex.api.pub.skeleton.service.audit.AuditBizService
 import com.rex.api.pub.skeleton.util.logger
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
-import java.util.UUID
 
 /**
  * 소셜 로그인 서비스.
@@ -33,9 +31,7 @@ class SocialAuthBizService(
     private val socialOAuth2Clients: List<SocialOAuth2Client>,
     private val userEntityService: UserEntityService,
     private val userSocialAccountEntityService: UserSocialAccountEntityService,
-    private val userGroupEntityService: UserGroupEntityService,
-    private val jwtTokenBizService: JwtTokenBizService,
-    private val authBizService: AuthBizService,
+    private val sessionIssueBizService: SessionIssueBizService,
     private val auditBizService: AuditBizService,
 ) {
     private val log = logger()
@@ -131,8 +127,7 @@ class SocialAuthBizService(
         updateSocialAccountInfo(socialAccount, socialUserInfo, tokenResponse)
         syncUserProfile(user, socialUserInfo)
 
-        val sessionId = UUID.randomUUID().toString()
-        val tokens = createTokens(user, sessionId, deviceType, deviceInfo, ipAddress)
+        val issued = sessionIssueBizService.issue(user, deviceType, deviceInfo, ipAddress)
 
         auditBizService.logSocialLoginSuccess(
             userId = user.id,
@@ -140,9 +135,9 @@ class SocialAuthBizService(
             provider = provider.name,
             ipAddress = ipAddress,
             userAgent = deviceInfo,
-            sessionId = sessionId,
+            sessionId = issued.sessionId,
         )
-        return tokens
+        return issued.tokens
     }
 
     /**
@@ -271,39 +266,5 @@ class SocialAuthBizService(
         if (name != null || profileImage != null || nickname != null) {
             userEntityService.updateProfile(userId = user.id, name = name, nickname = nickname, phone = null, profileImage = profileImage)
         }
-    }
-
-    private fun createTokens(
-        user: UserDto,
-        sessionId: String,
-        deviceType: String?,
-        deviceInfo: String?,
-        ipAddress: String?,
-    ): TokenResponseDto {
-        val groups = userGroupEntityService.getActiveGroupCodesByUserId(user.id)
-        val now = LocalDateTime.now()
-        val accessTokenExpiration = now.plusSeconds(jwtTokenBizService.getAccessTokenExpirationSeconds())
-        val refreshTokenExpiration = now.plusSeconds(jwtTokenBizService.getRefreshTokenExpirationSeconds())
-
-        val accessToken = jwtTokenBizService.generateAccessToken(userId = user.id, sessionId = sessionId, groups = groups)
-        val refreshToken = jwtTokenBizService.generateRefreshToken(userId = user.id, sessionId = sessionId)
-
-        authBizService.createSession(
-            userId = user.id,
-            sessionId = sessionId,
-            refreshToken = refreshToken,
-            deviceType = deviceType,
-            deviceInfo = deviceInfo,
-            ipAddress = ipAddress,
-            accessTokenExpiration = accessTokenExpiration,
-            refreshTokenExpiration = refreshTokenExpiration,
-        )
-        userEntityService.updateLastLoginAt(user.id, now)
-
-        return TokenResponseDto(
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            expiresIn = jwtTokenBizService.getAccessTokenExpirationSeconds(),
-        )
     }
 }

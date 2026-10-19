@@ -8,7 +8,6 @@ import com.rex.api.pub.skeleton.dto.auth.SignupRequestDto
 import com.rex.api.pub.skeleton.dto.auth.TokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.UserDto
 import com.rex.api.pub.skeleton.dto.auth.UserInfoDto
-import com.rex.api.pub.skeleton.dto.auth.UserSessionRecordDto
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
 import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
 import com.rex.api.pub.skeleton.exception.auth.DuplicateUserException
@@ -23,11 +22,7 @@ import com.rex.api.pub.skeleton.util.logger
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.security.MessageDigest
 import java.time.LocalDateTime
-import java.time.ZoneId
-import java.util.Base64
-import java.util.UUID
 
 /**
  * 인증 비즈니스 — 가입·로그인·로그아웃·토큰 재발급·비밀번호 변경. 리포지토리는 EntityService 뒤에 있고 Entity 는 여기까지 오지 않는다.
@@ -42,6 +37,7 @@ class AuthBizService(
     private val sessionCacheBizService: SessionCacheBizService,
     private val passwordEncoder: PasswordEncoder,
     private val loginAttemptBizService: LoginAttemptBizService,
+    private val sessionIssueBizService: SessionIssueBizService,
 ) {
     private val log = logger()
 
@@ -79,7 +75,7 @@ class AuthBizService(
     }
 
     /**
-     * 로그인 — 로그인 보호(차단 IP·계정 잠금·실패 기록)를 집행한다.
+     * 로그인 — 비밀번호를 확인하고([verifyPassword]) 실패 카운터를 지운 뒤 세션을 발급한다.
      *
      * `noRollbackFor`: 인증 실패는 오류가 아니라 업무 결과다. 실패 기록(`recordFailedAttempt`)이 남기는 잠금 감사 로그·IP 자동 차단 행은
      * 이 auth 트랜잭션에 참여하므로(`AuditLogRepository`·`BlockedIpRepository` 는 `authTransactionManager`), 예외로 롤백되면 보호 장치가
@@ -93,6 +89,21 @@ class AuthBizService(
         request: LoginRequestDto,
         ipAddress: String?,
     ): TokenResponseDto {
+        val user = verifyPassword(request, ipAddress)
+        loginAttemptBizService.clearAttempts(request.loginId, ipAddress)
+        return sessionIssueBizService.issue(user, request.deviceType, request.deviceInfo, ipAddress).tokens
+    }
+
+    /**
+     * 비밀번호 확인 — 로그인 보호(차단 IP·계정 잠금·실패 기록)를 집행하고 확인된 사용자를 돌려준다.
+     *
+     * 성공해도 실패 카운터를 지우지 않는다 — 호출자가 인증이 **최종적으로** 끝난 지점에서 지운다.
+     * 실패 기록은 호출자 트랜잭션에 참여하므로 호출자가 `noRollbackFor` 를 둔다([login] 참고).
+     */
+    fun verifyPassword(
+        request: LoginRequestDto,
+        ipAddress: String?,
+    ): UserDto {
         // 로그인 보호 — 차단 IP · 잠긴 계정은 비밀번호를 보기 전에 거절한다.
         // IP 를 모르면(프록시 헤더 불신 등) IP 보호는 건너뛴다 — 공유 버킷에 모으면 임계에서 그 값이 차단돼 IP 없는 로그인이 전부 막힌다
         if (ipAddress != null && loginAttemptBizService.isIpBlocked(ipAddress)) {
@@ -107,13 +118,11 @@ class AuthBizService(
         // 사용자 조회·비밀번호 검증 — 존재하지 않는 ID 도 같은 메시지·같은 기록(계정 열거 방지)
         val user = userEntityService.getActiveUserByLoginId(request.loginId)
         if (user == null || user.passwordHash == null || !passwordEncoder.matches(request.password, user.passwordHash)) {
-            // 실패 기록 — 임계 도달 시 계정 잠금(Redis)·IP 자동 차단(DB). noRollbackFor 로 예외 뒤에도 커밋된다
+            // 실패 기록 — 임계 도달 시 계정 잠금(Redis)·IP 자동 차단(DB). 호출자의 noRollbackFor 로 예외 뒤에도 커밋된다
             loginAttemptBizService.recordFailedAttempt(request.loginId, ipAddress)
             throw AuthenticationException("아이디 또는 비밀번호가 올바르지 않습니다")
         }
-        loginAttemptBizService.clearAttempts(request.loginId, ipAddress)
-
-        return createSessionAndTokens(user, request.deviceType, request.deviceInfo, ipAddress)
+        return user
     }
 
     /**
@@ -234,115 +243,6 @@ class AuthBizService(
         return toUserInfo(user, userGroupEntityService.getActiveGroupCodesByUserId(userId))
     }
 
-    /** 소셜 로그인 등 외부에서 토큰을 만든 뒤 세션 행·캐시만 만들 때 쓴다. */
-    @Transactional(transactionManager = "authTransactionManager")
-    fun createSession(
-        userId: Long,
-        sessionId: String,
-        refreshToken: String,
-        deviceType: String?,
-        deviceInfo: String?,
-        ipAddress: String?,
-        accessTokenExpiration: LocalDateTime,
-        refreshTokenExpiration: LocalDateTime,
-    ) {
-        val now = LocalDateTime.now()
-        val groups = userGroupEntityService.getActiveGroupCodesByUserId(userId)
-        persistSession(userId, sessionId, refreshToken, deviceType, deviceInfo, ipAddress, now, accessTokenExpiration, refreshTokenExpiration)
-        sessionCacheBizService.cacheSession(
-            SessionInfo(
-                userId = userId,
-                sessionId = sessionId,
-                groups = groups,
-                permissions = emptyList(),
-                deviceType = deviceType,
-                ipAddress = ipAddress,
-                issuedAt = now.atZone(ZoneId.systemDefault()).toInstant(),
-                expiresAt = accessTokenExpiration.atZone(ZoneId.systemDefault()).toInstant(),
-            ),
-        )
-    }
-
-    private fun createSessionAndTokens(
-        user: UserDto,
-        deviceType: String?,
-        deviceInfo: String?,
-        ipAddress: String?,
-    ): TokenResponseDto {
-        val sessionId = UUID.randomUUID().toString()
-        val groups = userGroupEntityService.getActiveGroupCodesByUserId(user.id)
-        val now = LocalDateTime.now()
-        val accessTokenExpiration = now.plusSeconds(jwtTokenBizService.getAccessTokenExpirationSeconds())
-        val refreshTokenExpiration = now.plusSeconds(jwtTokenBizService.getRefreshTokenExpirationSeconds())
-
-        val accessToken =
-            jwtTokenBizService.generateAccessToken(
-                userId = user.id,
-                sessionId = sessionId,
-                groups = groups,
-            )
-        val refreshToken =
-            jwtTokenBizService.generateRefreshToken(
-                userId = user.id,
-                sessionId = sessionId,
-            )
-
-        persistSession(user.id, sessionId, refreshToken, deviceType, deviceInfo, ipAddress, now, accessTokenExpiration, refreshTokenExpiration)
-        userEntityService.updateLastLoginAt(user.id, now)
-
-        sessionCacheBizService.cacheSession(
-            SessionInfo(
-                userId = user.id,
-                sessionId = sessionId,
-                groups = groups,
-                permissions = emptyList(), // 초기에는 빈 리스트, getSession 호출 시 로드됨
-                deviceType = deviceType,
-                ipAddress = ipAddress,
-                issuedAt = now.atZone(ZoneId.systemDefault()).toInstant(),
-                expiresAt = accessTokenExpiration.atZone(ZoneId.systemDefault()).toInstant(),
-            ),
-        )
-
-        return TokenResponseDto(
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            expiresIn = jwtTokenBizService.getAccessTokenExpirationSeconds(),
-        )
-    }
-
-    private fun persistSession(
-        userId: Long,
-        sessionId: String,
-        refreshToken: String,
-        deviceType: String?,
-        deviceInfo: String?,
-        ipAddress: String?,
-        now: LocalDateTime,
-        accessTokenExpiration: LocalDateTime,
-        refreshTokenExpiration: LocalDateTime,
-    ) {
-        userSessionEntityService.createSession(
-            UserSessionRecordDto(
-                id = 0,
-                userId = userId,
-                sessionId = sessionId,
-                deviceType = deviceType,
-                deviceInfo = deviceInfo,
-                ipAddress = ipAddress,
-                refreshTokenHash = hashToken(refreshToken),
-                accessTokenIssuedAt = now,
-                refreshTokenIssuedAt = now,
-                accessTokenExpiresAt = accessTokenExpiration,
-                refreshTokenExpiresAt = refreshTokenExpiration,
-                lastActivityAt = now,
-                isRevoked = false,
-                revokedAt = null,
-                revokedReason = null,
-                createdAt = now,
-            ),
-        )
-    }
-
     private fun toUserInfo(user: UserDto, groups: List<String>): UserInfoDto =
         UserInfoDto(
             id = user.id,
@@ -357,16 +257,4 @@ class AuthBizService(
 
     private fun encodePassword(raw: String): String =
         passwordEncoder.encode(raw) ?: throw IllegalStateException("PasswordEncoder 가 null 을 반환했다")
-
-    /**
-     * SHA-256으로 토큰을 해싱합니다.
-     *
-     * BCrypt는 72바이트 제한이 있어 JWT 토큰에 적합하지 않습니다.
-     * Refresh token 저장에는 SHA-256을 사용합니다.
-     */
-    private fun hashToken(token: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hashBytes = digest.digest(token.toByteArray(Charsets.UTF_8))
-        return Base64.getEncoder().encodeToString(hashBytes)
-    }
 }

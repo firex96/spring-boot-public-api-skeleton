@@ -465,6 +465,11 @@ interface ExternalApi {
 - requestId 로 상태 추적(`ExampleAsyncProxyStateStore`)
 - 감사 기록(`AuditBizService`)은 비동기가 아니다 — 호출자 트랜잭션에 동기 참여
 
+### 9-0. 로그인과 세션 발급
+- 1st-party 세션(`user_sessions` 행·access/refresh 토큰·세션 캐시)은 **`SessionIssueBizService.issue` 한 곳에서만** 만든다 — 비밀번호(`AuthBizService.login`)·소셜(`SocialAuthBizService.socialLogin`) 모두. 인증 판단(비밀번호 비교·소셜 검증·로그인 보호)은 호출자가 끝낸 뒤에 부른다
+- `AuthBizService.verifyPassword` 는 로그인 보호(차단 IP·잠금·실패 기록)를 집행하고 확인된 사용자만 돌려준다. **성공해도 실패 카운터를 지우지 않는다** — 호출자가 인증이 최종적으로 끝난 지점에서 `clearAttempts` 를 부른다
+- 검출: `SessionIssueBizServiceTest` · `AuthBizServiceLoginProtectionTest`(유닛)
+
 ### 9-1. Session Ownership (세션 표면의 인가)
 - 세션 폐기 표면 둘(`DELETE /users/me/sessions/{sessionId}` — JWT 의 `jti`, `DELETE /user/sessions/{id}` — 행 id)은 **요청자(principal) 소유 세션만** 폐기한다 — 타인 세션은 403(`ForbiddenException`)/400, 없는 세션은 204(멱등). 경로는 `Controller → UserSelfMappingService → UserSelfBizService.revokeSessionBySessionId → UserEntityService`
 - `GET /user/sessions` 의 `sessionId` 는 마스킹(8자 + `****`)이다 — 클라이언트에 원본 세션 식별자를 주지 않는다

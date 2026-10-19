@@ -1,6 +1,8 @@
 package com.rex.api.pub.skeleton.service.auth
 
+import com.rex.api.pub.skeleton.dto.auth.IssuedSessionDto
 import com.rex.api.pub.skeleton.dto.auth.LoginRequestDto
+import com.rex.api.pub.skeleton.dto.auth.TokenResponseDto
 import com.rex.api.pub.skeleton.dto.auth.UserDto
 import com.rex.api.pub.skeleton.enums.auth.UserStatus
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
@@ -17,7 +19,6 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.clearAllMocks
 import io.mockk.every
-import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -38,6 +39,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
     val sessionCacheBizService = mockk<SessionCacheBizService>()
     val passwordEncoder = mockk<PasswordEncoder>()
     val loginAttemptBizService = mockk<LoginAttemptBizService>(relaxUnitFun = true)
+    val sessionIssueBizService = mockk<SessionIssueBizService>()
 
     val authBizService =
         AuthBizService(
@@ -49,6 +51,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             sessionCacheBizService,
             passwordEncoder,
             loginAttemptBizService,
+            sessionIssueBizService,
         )
 
     val ip = "203.0.113.10"
@@ -67,6 +70,12 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
             lastLoginAt = null,
             createdAt = LocalDateTime.now(),
             updatedAt = LocalDateTime.now(),
+        )
+
+    fun issued() =
+        IssuedSessionDto(
+            sessionId = "session-1",
+            tokens = TokenResponseDto(accessToken = "access-token", refreshToken = "refresh-token", expiresIn = 3600L),
         )
 
     beforeContainer {
@@ -123,13 +132,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
         val user = activeUser()
         every { userEntityService.getActiveUserByLoginId("user1") } returns user
         every { passwordEncoder.matches("secret", "hash") } returns true
-        every { userGroupEntityService.getActiveGroupCodesByUserId(7L) } returns emptyList()
-        every { jwtTokenBizService.getAccessTokenExpirationSeconds() } returns 3600L
-        every { jwtTokenBizService.getRefreshTokenExpirationSeconds() } returns 604800L
-        every { jwtTokenBizService.generateAccessToken(7L, any(), emptyList()) } returns "access-token"
-        every { jwtTokenBizService.generateRefreshToken(7L, any()) } returns "refresh-token"
-        every { userSessionEntityService.createSession(any()) } answers { firstArg() }
-        justRun { sessionCacheBizService.cacheSession(any()) }
+        every { sessionIssueBizService.issue(user, "WEB", null, any()) } returns issued()
 
         Then("토큰을 돌려주고 사용자 카운터를 지운다 — 실패 기록 없음") {
             val tokens = authBizService.login(request, ip)
@@ -155,13 +158,7 @@ class AuthBizServiceLoginProtectionTest : BehaviorSpec({
         val user = activeUser()
         every { userEntityService.getActiveUserByLoginId("user1") } returns user
         every { passwordEncoder.matches("secret", "hash") } returns true
-        every { userGroupEntityService.getActiveGroupCodesByUserId(7L) } returns emptyList()
-        every { jwtTokenBizService.getAccessTokenExpirationSeconds() } returns 3600L
-        every { jwtTokenBizService.getRefreshTokenExpirationSeconds() } returns 604800L
-        every { jwtTokenBizService.generateAccessToken(7L, any(), emptyList()) } returns "access-token"
-        every { jwtTokenBizService.generateRefreshToken(7L, any()) } returns "refresh-token"
-        every { userSessionEntityService.createSession(any()) } answers { firstArg() }
-        justRun { sessionCacheBizService.cacheSession(any()) }
+        every { sessionIssueBizService.issue(user, "WEB", null, any()) } returns issued()
 
         Then("IP 차단 조회 없이 토큰을 돌려주고 사용자 카운터를 지운다") {
             authBizService.login(request, null).accessToken shouldBe "access-token"
