@@ -166,7 +166,7 @@ Error creating bean with name 'xxx': Unsatisfied dependency...
 **해결:**
 ```bash
 # Authorization 헤더 추가
-curl -X GET http://localhost:8080/api/v1/users/me \
+curl -X GET http://localhost:8080/users/me \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
@@ -184,7 +184,7 @@ curl -X GET http://localhost:8080/api/v1/users/me \
 **해결:**
 ```bash
 # Refresh Token으로 새 Access Token 발급
-curl -X POST http://localhost:8080/api/v1/auth/refresh \
+curl -X POST http://localhost:8080/auth/refresh \
   -H "Content-Type: application/json" \
   -d '{"refreshToken": "YOUR_REFRESH_TOKEN"}'
 ```

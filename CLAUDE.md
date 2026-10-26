@@ -152,12 +152,12 @@ SPRING_PROFILES_ACTIVE=aws AWS_SECRET_ID=… ./gradlew bootRun
 #### Controller
 ```kotlin
 @RestController
-@RequestMapping("/api/v1/products")
-class ProductController(
+@RequestMapping(path = ["/products"])
+class ProductRestController(
     private val mappingService: ProductMappingService, // MappingService 주입
 ) {
     @GetMapping("/{id}")
-    fun getProduct(@PathVariable id: Int): ProductModel = // Model 반환
+    fun getProduct(@PathVariable id: Long): ProductModel = // Model 반환
         mappingService.getProduct(id)
 }
 ```

@@ -217,9 +217,9 @@ rate-limit:
   enabled: true
   default-limit: 100        # 기본 분당 요청 수
   endpoints:
-    "/api/v1/auth/login": 10
-    "/api/v1/auth/signup": 5
-    "/api/v1/auth/refresh": 30
+    "/auth/login": 10
+    "/auth/signup": 5
+    "/auth/refresh": 30
 ```
 
 #### 체크리스트
