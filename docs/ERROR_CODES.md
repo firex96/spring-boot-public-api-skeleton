@@ -69,6 +69,10 @@ OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`us
 | 423 | Locked | 계정 잠금 |
 | 429 | Too Many Requests | 요청 횟수 초과 |
 | 500 | Internal Server Error | 서버 내부 오류 |
+| 502 | Bad Gateway | 외부 API 가 오류로 응답했거나 호출이 실패함 |
+| 503 | Service Unavailable | 외부 API 에 연결하지 못함 |
+
+응답 본문의 `status` 는 언제나 HTTP 상태와 같다. 둘 다 `ErrorCode` 의 status 하나에서 나온다.
 
 ---
 
@@ -132,7 +136,7 @@ OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`us
 {
   "status": 400,
   "divisionCode": "G004",
-  "resultMsg": "Missing Servlet RequestParameter Exception"
+  "resultMessage": "Missing Servlet RequestParameter Exception"
 }
 ```
 
@@ -143,13 +147,13 @@ OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`us
 
 ### G005 - I/O Error
 
-**HTTP Status**: 400
+**HTTP Status**: 500
 
-입출력 오류입니다.
+서버 측 입출력 오류입니다.
 
 **원인**:
-- 파일 업로드 실패
-- 네트워크 연결 문제
+- 파일 읽기·쓰기 실패
+- 서버 내부 네트워크 입출력 문제
 
 ---
 
@@ -236,9 +240,12 @@ JSON 직렬화/역직렬화 오류입니다.
 **응답 예시**:
 ```json
 {
+  "code": "NOT_VALID_ERROR",
+  "reason": "email: 올바른 형식의 이메일 주소여야 합니다, password: 비밀번호는 8자 이상이어야 합니다",
+  "errors": null,
   "status": 400,
   "divisionCode": "G011",
-  "resultMsg": "email: 올바른 형식의 이메일 주소여야 합니다, password: 비밀번호는 8자 이상이어야 합니다"
+  "resultMessage": "handle Validation Exception"
 }
 ```
 
@@ -263,6 +270,29 @@ JSON 직렬화/역직렬화 오류입니다.
 
 ---
 
+### G014 - External API Error
+
+**HTTP Status**: 502
+
+외부 API 가 오류로 응답했거나 호출이 실패했습니다. `ApiCallException` 의 기본 코드입니다.
+
+**해결 방법**:
+- 잠시 후 재시도
+- 문제 지속 시 서버 관리자에게 문의
+
+---
+
+### G016 - Service Unavailable
+
+**HTTP Status**: 503
+
+외부 API 에 연결하지 못했습니다(연결 거부·타임아웃·DNS). `WebClientRequestException`, 그리고 `ApiCallException(errorCode = SERVICE_UNAVAILABLE_ERROR)` 가 이 코드로 응답합니다.
+
+**해결 방법**:
+- 잠시 후 재시도
+
+---
+
 ### G999 - Internal Server Error
 
 **HTTP Status**: 500
@@ -271,7 +301,6 @@ JSON 직렬화/역직렬화 오류입니다.
 
 **원인**:
 - 예상치 못한 서버 오류
-- 외부 서비스 연결 실패
 
 **해결 방법**:
 - 잠시 후 재시도
@@ -280,6 +309,17 @@ JSON 직렬화/역직렬화 오류입니다.
 ---
 
 ## 인증 에러
+
+인증 예외는 모두 `AuthException`(→ `CodedException`)의 하위 타입이고, 자기 `ErrorCode` 만 정한다. 응답은 `GlobalExceptionHandler` 의 `CodedException` 핸들러 하나가 만든다.
+
+| 예외 | ErrorCode | HTTP | 구분 코드 |
+|---|---|---|---|
+| `AuthenticationException` · `UnauthorizedException` · `InvalidTokenException` | `UNAUTHORIZED_ERROR` | 401 | G007A |
+| `ForbiddenException` · `AuthorizationException` | `FORBIDDEN_ERROR` | 403 | G008 |
+| `DuplicateUserException` · `DuplicateResourceException` | `CONFLICT_ERROR` | 409 | G008A |
+| `ResourceNotFoundException` | `NOT_FOUND_ERROR` | 404 | G009 |
+| `AccountLockedException` | `ACCOUNT_LOCKED_ERROR` | 423 | AUTH001 |
+| `MfaException` | 생성자 인자 `MFA_*` | 아래 표 | MFA001~MFA006 |
 
 ### AuthenticationException
 
@@ -294,9 +334,12 @@ JSON 직렬화/역직렬화 오류입니다.
 **응답 예시**:
 ```json
 {
+  "code": "UNAUTHORIZED_ERROR",
+  "reason": "아이디 또는 비밀번호가 올바르지 않습니다",
+  "errors": null,
   "status": 401,
-  "divisionCode": "G008",
-  "resultMsg": "아이디 또는 비밀번호가 올바르지 않습니다"
+  "divisionCode": "G007A",
+  "resultMessage": "Unauthorized Exception"
 }
 ```
 
@@ -550,16 +593,14 @@ OAuth2 에러는 RFC 6749 표준 에러 코드를 사용합니다.
 
 ## 비즈니스 에러
 
-### 9999 - Transaction Error
+업무 오류 코드는 `ErrorCode` 의 「Custom Error CodeList」 자리에 추가한다. 스켈레톤은 업무 코드를 두지 않는다.
 
-**HTTP Status**: 200 (응답 본문에 에러 정보 포함)
+### 새 에러 코드 추가
 
-트랜잭션 처리 중 오류가 발생했습니다.
-
-**종류**:
-- INSERT_ERROR: 데이터 삽입 실패
-- UPDATE_ERROR: 데이터 수정 실패
-- DELETE_ERROR: 데이터 삭제 실패
+1. `enums/ErrorCode.kt` 에 항목을 추가한다 — `ORDER_ALREADY_PAID(409, "B001", "Order Already Paid")`. status 가 곧 HTTP 응답 상태이고 400~599 여야 한다. 구분 코드는 다른 항목과 겹치면 안 된다(`ErrorCodeContractTest` 가 검사한다).
+2. 던지는 곳에서 `throw CodedException(ErrorCode.ORDER_ALREADY_PAID, "이미 결제된 주문입니다")` 로 던진다. 메시지는 응답 `reason` 으로 나가므로 사용자에게 보여도 되는 문장으로 쓴다.
+3. 전용 예외 클래스는 같은 코드를 여러 곳에서 던지거나 `catch` 로 구분해야 할 때만 `CodedException` 을 상속해 만든다. 전용 핸들러는 만들지 않는다 — 응답 본문 모양이나 노출 정책이 다를 때만 예외다.
+4. 이 문서의 코드 표에 항목을 추가한다.
 
 ---
 
@@ -571,7 +612,9 @@ OAuth2 에러는 RFC 6749 표준 에러 코드를 사용합니다.
 interface ErrorResponse {
   status: number;
   divisionCode: string;
-  resultMsg: string;
+  code: string;
+  reason: string | null; // 상세 사유 (예외 메시지)
+  resultMessage: string; // 코드의 고정 문구
 }
 
 async function handleApiError(response: Response) {
@@ -581,7 +624,7 @@ async function handleApiError(response: Response) {
     switch (response.status) {
       case 401:
         // 인증 실패 - 로그인 페이지로 이동 또는 토큰 갱신
-        if (error.resultMsg.includes('만료')) {
+        if (error.reason?.includes('만료')) {
           await refreshToken();
           return retry(originalRequest);
         }
@@ -600,15 +643,15 @@ async function handleApiError(response: Response) {
 
       case 423:
         // 계정 잠금
-        showError(error.resultMsg);
+        showError(error.reason ?? error.resultMessage);
         break;
 
       case 400:
         // 유효성 검증 실패 - 필드별 에러 표시
         if (error.divisionCode === 'G011') {
-          parseValidationErrors(error.resultMsg);
+          parseValidationErrors(error.reason ?? '');
         } else {
-          showError(error.resultMsg);
+          showError(error.reason ?? error.resultMessage);
         }
         break;
 
@@ -616,7 +659,7 @@ async function handleApiError(response: Response) {
         showError('오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     }
 
-    throw new Error(error.resultMsg);
+    throw new Error(error.reason ?? error.resultMessage);
   }
 }
 ```

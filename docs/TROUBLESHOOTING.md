@@ -158,8 +158,8 @@ Error creating bean with name 'xxx': Unsatisfied dependency...
 ```json
 {
   "status": 401,
-  "divisionCode": "G008",
-  "resultMsg": "Authorization header missing"
+  "divisionCode": "G007A",
+  "reason": "Authorization header missing"
 }
 ```
 
@@ -176,8 +176,8 @@ curl -X GET http://localhost:8080/api/v1/users/me \
 ```json
 {
   "status": 401,
-  "divisionCode": "G008",
-  "resultMsg": "Token has expired"
+  "divisionCode": "G007A",
+  "reason": "Token has expired"
 }
 ```
 
@@ -195,8 +195,8 @@ curl -X POST http://localhost:8080/api/v1/auth/refresh \
 ```json
 {
   "status": 401,
-  "divisionCode": "G008",
-  "resultMsg": "Invalid token format"
+  "divisionCode": "G007A",
+  "reason": "Invalid token format"
 }
 ```
 
@@ -214,7 +214,7 @@ curl -X POST http://localhost:8080/api/v1/auth/refresh \
 {
   "status": 403,
   "divisionCode": "G008",
-  "resultMsg": "Access denied"
+  "reason": "Access denied"
 }
 ```
 
@@ -243,7 +243,7 @@ curl -X POST http://localhost:8080/api/v1/auth/refresh \
 {
   "status": 423,
   "divisionCode": "AUTH001",
-  "resultMsg": "계정이 30분간 잠겼습니다"
+  "reason": "계정이 30분간 잠겼습니다"
 }
 ```
 
@@ -262,9 +262,9 @@ WHERE login_id = 'username';
 **증상:**
 ```json
 {
-  "status": 429,
-  "divisionCode": "AUTH002",
-  "resultMsg": "IP가 일시적으로 차단되었습니다"
+  "status": 403,
+  "divisionCode": "G008",
+  "reason": "차단된 IP 입니다"
 }
 ```
 

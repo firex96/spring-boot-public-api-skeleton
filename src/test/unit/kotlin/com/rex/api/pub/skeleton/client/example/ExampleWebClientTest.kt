@@ -3,6 +3,7 @@ package com.rex.api.pub.skeleton.client.example
 import com.rex.api.pub.skeleton.dto.example.ExternalUserDataDto
 import com.rex.api.pub.skeleton.dto.example.ExternalUserResponseDto
 import com.rex.api.pub.skeleton.dto.example.InternalUserRequestDto
+import com.rex.api.pub.skeleton.enums.ErrorCode
 import com.rex.api.pub.skeleton.exception.ApiCallException
 import com.rex.api.pub.skeleton.mapper.example.ExampleProxyMapper
 import com.rex.api.pub.skeleton.util.WebClientUtil
@@ -13,7 +14,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.mapstruct.factory.Mappers
-import org.springframework.http.HttpStatus
 
 class ExampleWebClientTest : BehaviorSpec({
     val webClientUtil = mockk<WebClientUtil>()
@@ -119,7 +119,7 @@ class ExampleWebClientTest : BehaviorSpec({
                     shouldThrow<ApiCallException> {
                         service.registerUser(request)
                     }
-                exception.httpStatus shouldBe HttpStatus.BAD_GATEWAY
+                exception.errorCode shouldBe ErrorCode.EXTERNAL_API_ERROR
             }
         }
 
@@ -138,7 +138,7 @@ class ExampleWebClientTest : BehaviorSpec({
                     shouldThrow<ApiCallException> {
                         service.registerUser(request)
                     }
-                exception.httpStatus shouldBe HttpStatus.BAD_GATEWAY
+                exception.errorCode shouldBe ErrorCode.EXTERNAL_API_ERROR
                 exception.message shouldBe "외부 API 호출 실패: Connection timeout"
             }
         }

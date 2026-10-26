@@ -1,6 +1,5 @@
 package com.rex.api.pub.skeleton.support
 
-import com.rex.api.pub.skeleton.exception.ErrorMessageService
 import com.rex.api.pub.skeleton.service.auth.AuthBizService
 import com.rex.api.pub.skeleton.service.auth.JwtTokenBizService
 import io.mockk.mockk
@@ -26,10 +25,6 @@ class ControllerTestConfiguration {
     @Bean
     @Primary
     fun authServiceForFilter(): AuthBizService = mockk(relaxed = true)
-
-    @Bean
-    @Primary
-    fun errorMessageService(): ErrorMessageService = mockk(relaxed = true)
 
     /**
      * `@AuthenticationPrincipal` 해석기 — `@WebMvcTest(addFilters = false)` 에서는 Spring Security 의 MVC 통합이 빠져

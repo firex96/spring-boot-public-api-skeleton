@@ -50,7 +50,8 @@ Authorization: Bearer {access_token}
 {
   "status": 400,
   "divisionCode": "G011",
-  "resultMsg": "Validation Error"
+  "reason": "email: 올바른 형식의 이메일 주소여야 합니다",
+  "resultMessage": "handle Validation Exception"
 }
 ```
 
@@ -550,7 +551,7 @@ class APIClient {
             let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data)
             throw APIError.serverError(
                 code: errorResponse?.divisionCode ?? "UNKNOWN",
-                message: errorResponse?.resultMsg ?? "Unknown error"
+                message: errorResponse?.reason ?? errorResponse?.resultMessage ?? "Unknown error"
             )
         }
 
@@ -650,7 +651,8 @@ struct User: Decodable {
 struct ErrorResponse: Decodable {
     let status: Int
     let divisionCode: String
-    let resultMsg: String
+    let reason: String?
+    let resultMessage: String
 }
 
 struct EmptyResponse: Decodable {}

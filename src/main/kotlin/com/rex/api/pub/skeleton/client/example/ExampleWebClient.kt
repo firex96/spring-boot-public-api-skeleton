@@ -9,7 +9,6 @@ import com.rex.api.pub.skeleton.util.WebClientUtil
 import com.rex.api.pub.skeleton.util.logger
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
-import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Component
 import reactor.core.publisher.Mono
 
@@ -72,7 +71,7 @@ class ExampleWebClient(
                     baseUrl = baseUrl,
                     uri = REGISTER_USER_URI,
                     responseType = ExternalUserResponseDto::class.java,
-                ) ?: throw ApiCallException("응답이 없습니다.", HttpStatus.BAD_GATEWAY)
+                ) ?: throw ApiCallException("응답이 없습니다.")
 
             // 3. 외부 → 내부 포맷 변환
             val response = exampleProxyMapper.toInternalResponse(externalResponse)
@@ -83,7 +82,7 @@ class ExampleWebClient(
             throw e
         } catch (e: Exception) {
             logger.error("사용자 등록 실패: userId=${request.userId}", e)
-            throw ApiCallException("외부 API 호출 실패: ${e.message}", HttpStatus.BAD_GATEWAY, e)
+            throw ApiCallException("외부 API 호출 실패: ${e.message}", cause = e)
         }
     }
 

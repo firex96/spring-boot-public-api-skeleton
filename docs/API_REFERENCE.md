@@ -49,7 +49,7 @@ Authorization: Bearer {access_token}
 {
   "status": 400,
   "divisionCode": "G001",
-  "resultMsg": "Bad Request Exception"
+  "resultMessage": "Bad Request Exception"
 }
 ```
 

@@ -417,10 +417,10 @@ db/migration/{schema}/
 - `@Async` 는 같은 프록시 규칙 — 같은 클래스 안 호출은 동기. 비동기는 별도 빈(`ExampleAsyncProxyWorker`)으로. 검출 `AsyncSelfInvocationConventionTest`
 
 ### 5. Exception Handling Pattern
-- 커스텀 예외는 `ExceptionCode` 인터페이스 구현
-- `ErrorCode` enum으로 표준화된 에러 코드
-- `GlobalExceptionHandler`에서 중앙 처리
-- 주요 예외: `ItemNotFoundException`, `ClientBadRequestException`
+- **업무 예외는 `CodedException` 을 상속하고, HTTP 상태와 구분 코드는 `ErrorCode` 하나가 정한다.** 새 오류는 `ErrorCode` 에 항목을 추가하고 `throw CodedException(ErrorCode.X)` 로 던진다 — 같은 코드를 여러 곳에서 던지거나 `catch` 로 구분해야 할 때만 하위 클래스를 만든다. 문자열 code 를 받는 생성자는 두지 않는다
+- `GlobalExceptionHandler` 는 `CodedException` 하나로 받는다. 모든 핸들러가 `respond(errorCode, reason)` 으로 응답해 **본문 `status` 는 항상 HTTP 상태와 같다**. HTTP 상태를 코드와 따로 정하는 핸들러를 두지 않는다
+- 주요 예외: `ClientBadRequestException`(400 G001) · `InvalidRequestParameterException`(400 G001) · `ItemNotFoundException`(404 G009) · `ApiCallException`(기본 502 G014, 연결 실패 503 G016) · `AuthException` 하위 인증 예외(코드표 `docs/ERROR_CODES.md`)
+- 검출: `ErrorCodeContractTest`(모든 코드의 status 400~599·구분 코드 유일) · `ErrorResponseContractIntegrationTest`(본문 `status` = HTTP 상태)
 - **오류 응답 계약은 세 가지다** — JSON 두 형식과 사람이 보는 HTML 화면 하나.
 
   | 경로 | 형식 |
