@@ -2,7 +2,7 @@ package com.rex.api.pub.skeleton.security
 
 import com.rex.api.pub.skeleton.config.E2ETestConfiguration
 import com.rex.api.pub.skeleton.config.E2ETestDataSetup
-import com.rex.api.pub.skeleton.handler.ErrorReason
+import com.rex.api.pub.skeleton.enums.AccessDenial
 import com.rex.api.pub.skeleton.support.E2eResourceJanitor
 import com.rex.api.pub.skeleton.support.E2eResources
 import com.rex.api.pub.skeleton.support.createAndLoginUser
@@ -70,8 +70,8 @@ class ErrorResponseFormatE2ETest(
             filterBody["divisionCode"] shouldBe "G008"
             methodBody["divisionCode"] shouldBe "G008"
             // 필터 체인과 GlobalExceptionHandler 가 같은 문장을 쓴다(ErrorReason)
-            filterBody["reason"] shouldBe ErrorReason.FORBIDDEN
-            methodBody["reason"] shouldBe ErrorReason.FORBIDDEN
+            filterBody["reason"] shouldBe AccessDenial.ACCESS_FORBIDDEN.reason
+            methodBody["reason"] shouldBe AccessDenial.ACCESS_FORBIDDEN.reason
         }
     }
 
@@ -87,7 +87,7 @@ class ErrorResponseFormatE2ETest(
             body.keys shouldBe errorResponseKeys
             body["code"] shouldBe "UNAUTHORIZED_ERROR"
             body["divisionCode"] shouldBe "G015"
-            body["reason"] shouldBe ErrorReason.UNAUTHORIZED
+            body["reason"] shouldBe AccessDenial.AUTHENTICATION_REQUIRED.reason
         }
     }
 })

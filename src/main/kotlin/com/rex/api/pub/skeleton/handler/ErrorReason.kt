@@ -7,8 +7,8 @@ import com.rex.api.pub.skeleton.enums.ErrorCode
  * 업무 예외 4xx 는 예외 메시지를 그대로 쓰고, 그 밖의 경우는 여기 문장을 쓴다.
  */
 object ErrorReason {
-    const val UNAUTHORIZED = "인증이 필요합니다"
-    const val FORBIDDEN = "접근 권한이 없습니다"
+    const val AUTHENTICATION_REQUIRED = "인증이 필요합니다"
+    const val ACCESS_FORBIDDEN = "접근 권한이 없습니다"
     const val SERVER_ERROR = "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
     const val EXTERNAL_SERVICE_ERROR = "외부 서비스가 응답하지 않아 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
     const val MALFORMED_BODY = "요청 본문의 형식이 올바르지 않습니다."

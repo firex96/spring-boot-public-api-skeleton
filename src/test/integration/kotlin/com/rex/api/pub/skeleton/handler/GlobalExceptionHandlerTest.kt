@@ -2,6 +2,7 @@ package com.rex.api.pub.skeleton.handler
 
 import com.rex.api.pub.skeleton.config.IntegrationTestConfiguration
 import com.rex.api.pub.skeleton.config.TestcontainersConfiguration
+import com.rex.api.pub.skeleton.enums.AccessDenial
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.string.shouldContain
 import org.springframework.boot.test.context.SpringBootTest
@@ -229,7 +230,7 @@ class GlobalExceptionHandlerTest(
                         .andExpect(status().isForbidden)
                         .andExpect(jsonPath("$.code").value("FORBIDDEN_ERROR"))
                         .andExpect(jsonPath("$.divisionCode").value("G008"))
-                        .andExpect(jsonPath("$.reason").value(ErrorReason.FORBIDDEN))
+                        .andExpect(jsonPath("$.reason").value(AccessDenial.ACCESS_FORBIDDEN.reason))
                 }
 
                 it("should map AccessDeniedException of an anonymous request to 401 UNAUTHORIZED_ERROR") {
@@ -238,7 +239,7 @@ class GlobalExceptionHandlerTest(
                         .andExpect(status().isUnauthorized)
                         .andExpect(jsonPath("$.code").value("UNAUTHORIZED_ERROR"))
                         .andExpect(jsonPath("$.divisionCode").value("G015"))
-                        .andExpect(jsonPath("$.reason").value(ErrorReason.UNAUTHORIZED))
+                        .andExpect(jsonPath("$.reason").value(AccessDenial.AUTHENTICATION_REQUIRED.reason))
                 }
 
                 it("should handle generic Exception with 500 status and a fixed reason") {

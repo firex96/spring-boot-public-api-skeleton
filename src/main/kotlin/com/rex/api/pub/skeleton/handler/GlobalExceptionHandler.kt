@@ -1,6 +1,7 @@
 package com.rex.api.pub.skeleton.handler
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.rex.api.pub.skeleton.enums.AccessDenial
 import com.rex.api.pub.skeleton.enums.ErrorCode
 import com.rex.api.pub.skeleton.exception.CodedException
 import com.rex.api.pub.skeleton.model.ErrorResponseModel
@@ -66,10 +67,13 @@ class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException::class)
     protected fun handleAccessDeniedException(ex: AccessDeniedException): ResponseEntity<ErrorResponseModel> {
         val authentication = SecurityContextHolder.getContext().authentication
-        if (authentication == null || authentication is AnonymousAuthenticationToken) {
-            return respond(ErrorCode.UNAUTHORIZED_ERROR, ErrorReason.UNAUTHORIZED, ex)
-        }
-        return respond(ErrorCode.FORBIDDEN_ERROR, ErrorReason.FORBIDDEN, ex)
+        val denial =
+            if (authentication == null || authentication is AnonymousAuthenticationToken) {
+                AccessDenial.AUTHENTICATION_REQUIRED
+            } else {
+                AccessDenial.ACCESS_FORBIDDEN
+            }
+        return respond(denial.errorCode, denial.reason, ex)
     }
 
     // ================================
