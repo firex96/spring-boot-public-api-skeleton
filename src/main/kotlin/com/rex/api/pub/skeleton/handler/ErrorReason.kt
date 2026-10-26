@@ -1,7 +1,5 @@
 package com.rex.api.pub.skeleton.handler
 
-import com.rex.api.pub.skeleton.enums.ErrorCode
-
 /**
  * 오류 응답 `reason` 의 고정 문장. 사용자에게 그대로 보여도 되는 문장만 둔다 — 내부 상세(예외 메시지·클래스 이름)는 로그로 보낸다.
  * 업무 예외 4xx 는 예외 메시지를 그대로 쓰고, 그 밖의 경우는 여기 문장을 쓴다.
@@ -24,7 +22,6 @@ object ErrorReason {
 
     fun missingHeader(name: String) = "필수 헤더 '$name' 가 없습니다."
 
-    /** 5xx 의 응답 문장 — 외부 API 계열 코드는 외부 서비스 문장, 그 밖은 일반 문장. */
-    fun forServerError(errorCode: ErrorCode): String =
-        if (errorCode == ErrorCode.EXTERNAL_API_ERROR || errorCode == ErrorCode.SERVICE_UNAVAILABLE_ERROR) EXTERNAL_SERVICE_ERROR else SERVER_ERROR
+    /** 5xx 의 문장 — 상태 502~504(게이트웨이 계열)는 외부 서비스 문장, 그 밖은 일반 문장. */
+    fun forServerError(status: Int): String = if (status in 502..504) EXTERNAL_SERVICE_ERROR else SERVER_ERROR
 }

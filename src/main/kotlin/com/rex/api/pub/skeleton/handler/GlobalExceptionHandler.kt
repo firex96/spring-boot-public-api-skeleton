@@ -214,7 +214,7 @@ class GlobalExceptionHandler {
         } else {
             logger.warn("{} {}: {}", errorCode.divisionCode, ex.javaClass.simpleName, ex.message)
         }
-        val body = ErrorResponseModel.of(errorCode, if (serverError) ErrorReason.forServerError(errorCode) else reason)
+        val body = ErrorResponseModel.of(errorCode, if (serverError) ErrorReason.forServerError(errorCode.status) else reason)
         return ResponseEntity(body, HttpStatus.valueOf(errorCode.status))
     }
 
