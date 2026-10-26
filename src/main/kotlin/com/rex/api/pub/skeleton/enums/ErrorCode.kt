@@ -17,6 +17,10 @@ enum class ErrorCode(
      * 401 : Unauthorized
      * 403 : Forbidden
      * 404 : Not Found
+     * 405 : Method Not Allowed
+     * 406 : Not Acceptable
+     * 413 : Payload Too Large
+     * 415 : Unsupported Media Type
      * 500 : Internal Server Error
      * 502 : Bad Gateway
      * 503 : Service Unavailable
@@ -82,9 +86,42 @@ enum class ErrorCode(
     // 외부 API 에 연결하지 못함 (연결 거부·타임아웃·DNS)
     SERVICE_UNAVAILABLE_ERROR(503, "G016", "Service Unavailable"),
 
+    // 아래 넷은 처리하지 않는 Spring 예외(ErrorResponse)를 그 상태로 응답할 때 쓴다 — fromStatus
+    METHOD_NOT_ALLOWED_ERROR(405, "G017", "Method Not Allowed"),
+    NOT_ACCEPTABLE_ERROR(406, "G018", "Not Acceptable"),
+    PAYLOAD_TOO_LARGE_ERROR(413, "G019", "Payload Too Large"),
+    UNSUPPORTED_MEDIA_TYPE_ERROR(415, "G020", "Unsupported Media Type"),
+
     // 서버가 처리 할 방법을 모르는 경우 발생
     INTERNAL_SERVER_ERROR(500, "G999", "Internal Server Error"),
 
     /******************************** Custom Error CodeList ****************************************/
     // 업무 코드는 여기에 추가하고 `throw CodedException(ErrorCode.X)` 로 던진다. status 가 곧 HTTP 응답 상태다.
+    ;
+
+    companion object {
+        /** 상태 기반 처리의 대표 코드 — 첫 일치가 아니라 이 목록이 정한다(400 은 BAD_REQUEST_ERROR). 상태가 겹치면 초기화가 실패한다. */
+        private val BY_STATUS: Map<Int, ErrorCode> =
+            listOf(
+                BAD_REQUEST_ERROR,
+                UNAUTHORIZED_ERROR,
+                FORBIDDEN_ERROR,
+                NOT_FOUND_ERROR,
+                METHOD_NOT_ALLOWED_ERROR,
+                NOT_ACCEPTABLE_ERROR,
+                CONFLICT_ERROR,
+                PAYLOAD_TOO_LARGE_ERROR,
+                UNSUPPORTED_MEDIA_TYPE_ERROR,
+                ACCOUNT_LOCKED_ERROR,
+                INTERNAL_SERVER_ERROR,
+                EXTERNAL_API_ERROR,
+                SERVICE_UNAVAILABLE_ERROR,
+            ).let { codes -> codes.associateBy { it.status }.also { check(it.size == codes.size) { "BY_STATUS 에 같은 상태의 코드가 둘 있다" } } }
+
+        /**
+         * 상태에 맞는 코드. 목록 밖 상태는 4xx → [BAD_REQUEST_ERROR], 5xx → [INTERNAL_SERVER_ERROR] 이고,
+         * 응답 HTTP 상태도 그 코드의 상태가 된다 — 상태와 코드가 어긋난 응답은 나가지 않는다.
+         */
+        fun fromStatus(status: Int): ErrorCode = BY_STATUS[status] ?: if (status >= 500) INTERNAL_SERVER_ERROR else BAD_REQUEST_ERROR
+    }
 }

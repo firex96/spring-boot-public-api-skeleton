@@ -8,12 +8,14 @@ import com.rex.api.pub.skeleton.model.ErrorResponseModel
 import com.rex.api.pub.skeleton.util.logger
 import jakarta.validation.ConstraintViolationException
 import org.springframework.boot.json.JsonParseException
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.security.authentication.AnonymousAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.web.ErrorResponse
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.MissingRequestHeaderException
 import org.springframework.web.bind.MissingServletRequestParameterException
@@ -34,6 +36,7 @@ import java.io.IOException
  * - HTTP 상태는 언제나 응답에 실은 [ErrorCode] 의 status 다 — 본문 `status` 와 HTTP 상태가 갈리지 않게 상태를 정하는 곳을 [respond] 하나로 둔다.
  * - `reason` 에는 사용자에게 보여도 되는 문장만 싣는다. 업무 예외 4xx 는 예외 메시지, 그 밖은 [ErrorReason] 의 고정 문장(검증 실패는 필드별 검증 메시지)이다.
  *   원래 예외 메시지는 [respond] 가 로그에만 남긴다.
+ * - 전용 핸들러가 없는 Spring 예외(`ErrorResponse` — 405·406·413·415·503 등)는 그 HTTP 상태와 그 상태의 코드([ErrorCode.fromStatus])로 응답한다.
  */
 @RestControllerAdvice
 class GlobalExceptionHandler {
@@ -190,9 +193,20 @@ class GlobalExceptionHandler {
     protected fun handleIllegalArgumentException(ex: IllegalArgumentException): ResponseEntity<ErrorResponseModel> =
         respond(ErrorCode.NOT_VALID_ERROR, ErrorReason.INVALID_VALUE, ex)
 
+    /**
+     * 전용 핸들러가 없는 Spring 예외(`ErrorResponse`)는 그 상태와 그 상태의 코드로 응답한다. 상태가 보존되면 `Allow`·`Accept` 같은
+     * 예외 헤더도 싣는다(코드가 없는 상태로 대체되면 싣지 않는다). 그 밖의 예외는 500 이다.
+     */
     @ExceptionHandler(Exception::class)
-    protected fun handleAllExceptions(ex: Exception): ResponseEntity<ErrorResponseModel> =
-        respond(ErrorCode.INTERNAL_SERVER_ERROR, ErrorReason.SERVER_ERROR, ex)
+    protected fun handleAllExceptions(ex: Exception): ResponseEntity<ErrorResponseModel> {
+        if (ex is ErrorResponse) {
+            val status = ex.statusCode.value()
+            val errorCode = ErrorCode.fromStatus(status)
+            val headers = if (errorCode.status == status) ex.headers else HttpHeaders.EMPTY
+            return respond(errorCode, ErrorReason.forStatus(errorCode.status), ex, headers)
+        }
+        return respond(ErrorCode.INTERNAL_SERVER_ERROR, ErrorReason.SERVER_ERROR, ex)
+    }
 
     // ================================
     // Helper Methods
@@ -207,6 +221,7 @@ class GlobalExceptionHandler {
         errorCode: ErrorCode,
         reason: String,
         ex: Exception,
+        headers: HttpHeaders = HttpHeaders.EMPTY,
     ): ResponseEntity<ErrorResponseModel> {
         val serverError = errorCode.status >= 500
         if (serverError) {
@@ -215,7 +230,7 @@ class GlobalExceptionHandler {
             logger.warn("{} {}: {}", errorCode.divisionCode, ex.javaClass.simpleName, ex.message)
         }
         val body = ErrorResponseModel.of(errorCode, if (serverError) ErrorReason.forServerError(errorCode.status) else reason)
-        return ResponseEntity(body, HttpStatus.valueOf(errorCode.status))
+        return ResponseEntity(body, headers, HttpStatus.valueOf(errorCode.status))
     }
 
     /**

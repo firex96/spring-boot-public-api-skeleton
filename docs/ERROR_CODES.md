@@ -67,14 +67,18 @@ OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`us
 | 401 | Unauthorized | 인증 필요 또는 인증 실패 |
 | 403 | Forbidden | 권한 없음 |
 | 404 | Not Found | 리소스를 찾을 수 없음 |
+| 405 | Method Not Allowed | 그 경로가 지원하지 않는 요청 방식 (`Allow` 헤더에 허용 방식) |
+| 406 | Not Acceptable | 요청한 응답 형식(`Accept`)을 제공할 수 없음 |
 | 409 | Conflict | 리소스 충돌 (중복 등) |
+| 413 | Payload Too Large | 요청 본문(업로드)이 너무 큼 |
+| 415 | Unsupported Media Type | 지원하지 않는 요청 본문 형식 (`Accept` 헤더에 허용 형식) |
 | 423 | Locked | 계정 잠금 |
 | 429 | Too Many Requests | 요청 횟수 초과 |
 | 500 | Internal Server Error | 서버 내부 오류 |
 | 502 | Bad Gateway | 외부 API 가 오류로 응답했거나 호출이 실패함 |
 | 503 | Service Unavailable | 외부 API 에 연결하지 못함 |
 
-응답 본문의 `status` 는 언제나 HTTP 상태와 같다. 둘 다 `ErrorCode` 의 status 하나에서 나온다.
+응답 본문의 `status` 는 언제나 HTTP 상태와 같다. 둘 다 `ErrorCode` 의 status 하나에서 나온다. 전용 핸들러가 없는 Spring 예외(405·406·413·415·503 등)도 그 상태와 그 상태의 코드(`ErrorCode.fromStatus`)로 응답한다. 코드가 없는 상태는 4xx 면 400 `BAD_REQUEST_ERROR`, 5xx 면 500 `INTERNAL_SERVER_ERROR` 로 응답하고 HTTP 상태도 그 코드의 상태가 된다.
 
 ---
 
@@ -287,10 +291,47 @@ JSON 직렬화/역직렬화 오류입니다.
 
 **HTTP Status**: 503
 
-외부 API 에 연결하지 못했습니다(연결 거부·타임아웃·DNS). `WebClientRequestException`, 그리고 `ApiCallException(errorCode = SERVICE_UNAVAILABLE_ERROR)` 가 이 코드로 응답합니다.
+외부 API 에 연결하지 못했습니다(연결 거부·타임아웃·DNS). `WebClientRequestException`, 그리고 `ApiCallException(errorCode = SERVICE_UNAVAILABLE_ERROR)` 가 이 코드로 응답합니다. 503 을 내는 Spring 예외(비동기 요청 시간 초과 등)도 이 코드입니다. 스택 공통 코드입니다(asp-net-core 도 같은 값).
 
 **해결 방법**:
 - 잠시 후 재시도
+
+---
+
+### G017 - Method Not Allowed
+
+**HTTP Status**: 405
+
+그 경로가 지원하지 않는 요청 방식입니다. 응답 `Allow` 헤더에 허용 방식이 있습니다. `reason`: 「허용되지 않는 요청 방식입니다.」
+
+---
+
+### G018 - Not Acceptable
+
+**HTTP Status**: 406
+
+요청한 응답 형식(`Accept`)을 서버가 제공할 수 없습니다. `reason`: 「요청한 응답 형식을 제공할 수 없습니다.」
+
+---
+
+### G019 - Payload Too Large
+
+**HTTP Status**: 413
+
+요청 본문(업로드 파일)이 허용 크기보다 큽니다. `reason`: 「요청 본문이 너무 큽니다.」
+
+---
+
+### G020 - Unsupported Media Type
+
+**HTTP Status**: 415
+
+지원하지 않는 요청 본문 형식(`Content-Type`)입니다. 응답 `Accept` 헤더에 허용 형식이 있습니다. `reason`: 「지원하지 않는 요청 본문 형식입니다.」
+
+**해결 방법**:
+- JSON 본문은 `Content-Type: application/json` 으로 보낸다
+
+G016~G020 은 스택 공통 코드입니다(SKELETON `docs/error-codes.md`).
 
 ---
 

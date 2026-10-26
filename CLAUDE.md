@@ -423,7 +423,8 @@ db/migration/{schema}/
 - **응답 문구는 사용자 문장이다** — `reason` 은 업무 예외 4xx 면 예외 메시지, 검증 실패면 `필드: 검증 메시지`, 그 밖은 `handler/ErrorReason` 의 고정 문장(5xx 포함)이다. `resultMessage`(= `ErrorCode.message`)는 사람이 읽는 제목이고, 스택 공통 코드는 asp 와 같은 값이다(정본 SKELETON `docs/error-codes.md`). 업무 예외 메시지에는 하위 예외 메시지(`e.message`)·외부 시스템 응답 문구·URL 을 합치지 않는다 — 상세는 로그와 `cause` 에 남긴다. 요청이 보낸 식별자를 되돌려 주는 것은 괜찮다
 - 로그는 `respond` 한 곳에서 남긴다 — 4xx `warn`(원래 메시지), 5xx `error`(스택). 5xx 문장은 상태로 고른다 — 502~504 는 외부 서비스 문장, 그 밖은 일반 문장(`ErrorReason.forServerError`)
 - 401·403 은 `enums/AccessDenial` 이 코드와 문장을 함께 정하고, 필터 체인(`SecurityConfiguration` → `SecurityErrorResponseWriter`)과 `GlobalExceptionHandler` 가 그것만 쓴다
-- 검출: `ErrorCodeContractTest`(모든 코드의 status 400~599·구분 코드 유일·제목 형식) · `ErrorResponseContractIntegrationTest`(본문 `status` = HTTP 상태, 응답 문구에 내부 상세 없음) · 소셜 클라이언트 테스트(공급자 오류 문구 미노출)
+- 전용 핸들러가 없는 Spring 예외(`ErrorResponse` — 405·406·413·415·503 등)는 캐치올이 그 HTTP 상태와 그 상태의 코드(`ErrorCode.fromStatus`, G016~G020)로 응답하고 `Allow`·`Accept` 헤더를 싣는다. 코드가 없는 상태는 4xx 400 `BAD_REQUEST_ERROR`·5xx 500 `INTERNAL_SERVER_ERROR` 와 그 상태로 낮춘다
+- 검출: `ErrorCodeContractTest`(모든 코드의 status 400~599·구분 코드 유일·제목 형식) · `ErrorResponseContractIntegrationTest`(본문 `status` = HTTP 상태, 응답 문구에 내부 상세 없음) · `FrameworkStatusResponseIntegrationTest`(Spring 예외의 상태 기반 응답) · `ErrorCodeFromStatusTest` · 소셜 클라이언트 테스트(공급자 오류 문구 미노출)
 - **오류 응답 계약은 세 가지다** — JSON 두 형식과 사람이 보는 HTML 화면 하나.
 
   | 경로 | 형식 |

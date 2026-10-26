@@ -3,7 +3,6 @@ package com.rex.api.pub.skeleton.handler
 import com.rex.api.pub.skeleton.config.IntegrationTestConfiguration
 import com.rex.api.pub.skeleton.config.TestcontainersConfiguration
 import io.kotest.core.spec.style.DescribeSpec
-import io.kotest.matchers.string.shouldNotContain
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
@@ -11,7 +10,6 @@ import org.springframework.http.MediaType
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.ContextConfiguration
 import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.ResultActions
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -126,12 +124,6 @@ class ErrorResponseContractIntegrationTest(
 
         // 응답의 문구(reason·resultMessage)는 사용자에게 그대로 보여도 되는 문장이어야 한다 — 내부 상세는 로그로만 간다.
         describe("응답 문구는 사용자 문장이다") {
-
-            fun ResultActions.bodyHasNoInternals(vararg extra: String): ResultActions {
-                val body = andReturn().response.contentAsString
-                (listOf("com.rex", "Exception", "java.") + extra).forEach { body shouldNotContain it }
-                return this
-            }
 
             it("깨진 JSON 은 형식 오류 문장과 코드 제목만 싣는다") {
                 mockMvc
