@@ -177,7 +177,7 @@ Controller 는 **MappingService 만** 주입받는다. BizService 를 직접 주
 
 **문자열 값을 갖는 Enum 은 `StringEnum` 인터페이스를 구현한다.** JPA 영속화는 `AbstractStringEnumConverter`, 역변환은 `StringEnumUtil.fromValue()` 를 쓴다. `name()` 을 DB 값으로 쓰지 않는다 — 이름을 바꾸면 데이터가 깨진다.
 
-**업무 예외는 `CodedException` 을 상속하고, HTTP 상태와 오류 코드는 `ErrorCode` 하나가 정한다.** 새 오류는 `ErrorCode` 에 항목을 추가하고 `throw CodedException(ErrorCode.X)` 로 던진다. `GlobalExceptionHandler` 는 `CodedException` 하나로 받으며, 응답 본문 모양이나 노출 정책이 다른 예외만 전용 핸들러를 둔다. 예외를 삼키지 않는다.
+**업무 예외는 `CodedException` 을 상속하고, HTTP 상태와 오류 코드는 `ErrorCode` 하나가 정한다.** 새 오류는 `ErrorCode` 에 항목을 추가하고 `throw CodedException(ErrorCode.X)` 로 던진다. `GlobalExceptionHandler` 는 `CodedException` 하나로 받으며, 응답 본문 모양이나 노출 정책이 다른 예외만 전용 핸들러를 둔다. 오류 응답의 문구 필드에는 사용자에게 보여도 되는 문장만 싣는다 — 업무 예외 4xx 는 예외 메시지(하위 예외·외부 응답 문구를 합치지 않는다), 검증 실패는 필드별 검증 메시지, 그 밖은 고정 문장이고 내부 상세는 로그에 남긴다. 예외를 삼키지 않는다.
 
 **비밀값은 논리 키로만 참조한다.** yml 에는 `${db-writer-password}` 같은 kebab-case 논리 키만 적고 평문을 어디에도 적지 않는다. 값은 환경변수 또는 비밀값 출처 프로필(`aws`·`azure`·`gcp`)이 채운다 — 정본은 `.claude/rules/conventions.md` 「설정값·비밀값 규약」.
 

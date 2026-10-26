@@ -25,20 +25,22 @@ OAuth2 프로토콜 엔드포인트와 인가 서버 브라우저 화면(`/oauth
   "errors": null,
   "status": 403,
   "divisionCode": "G008",
-  "resultMessage": "Forbidden Exception"
+  "resultMessage": "Forbidden"
 }
 ```
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | code | string | `ErrorCode` 이름 |
-| reason | string? | 상세 사유 |
+| reason | string? | 사용자에게 그대로 보여도 되는 사유 문장. 업무 예외 4xx 는 예외 메시지, 검증 실패는 `필드: 검증 메시지`, 그 밖(5xx 포함)은 고정 문장이다. 클래스 이름·예외 메시지·URL 같은 내부 상세는 싣지 않는다 |
 | errors | array? | 필드 검증 오류 (`field`, `value`, `reason`) |
 | status | int | HTTP 상태 코드 |
 | divisionCode | string | 에러 구분 코드 |
-| resultMessage | string | 에러 메시지 |
+| resultMessage | string | 코드의 제목(`ErrorCode.message`). 스택 공통 코드는 asp-net-core 와 같은 값이다 — 정본은 스켈레톤 워크스페이스(SKELETON 레포)의 `docs/error-codes.md` 다 |
 
-필터 체인 단계(인증 없음 401, URL 인가 거부 403)는 `SecurityErrorResponseWriter` 가, 컨트롤러 이후 단계는 `GlobalExceptionHandler` 가 같은 모델로 씁니다. 인증 없이 메서드 보안에 거부되면 403 이 아니라 401 입니다.
+필터 체인 단계(인증 없음 401, URL 인가 거부 403)는 `SecurityErrorResponseWriter` 가, 컨트롤러 이후 단계는 `GlobalExceptionHandler` 가 같은 모델로 씁니다. 두 단계의 401·403 `reason` 은 같은 문장(「인증이 필요합니다」·「접근 권한이 없습니다」)입니다. 인증 없이 메서드 보안에 거부되면 403 이 아니라 401 입니다.
+
+5xx 의 `reason` 은 고정 문장입니다 — 외부 API 실패(G014·G016)는 「외부 서비스가 응답하지 않아 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.」, 그 밖은 「일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.」.
 
 ### OAuth2 에러 응답
 
@@ -101,12 +103,10 @@ OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`us
 요청 본문이 없습니다.
 
 **원인**:
-- POST/PUT 요청 시 본문 누락
-- JSON 파싱 실패
+- POST/PUT 요청 시 본문 누락 (본문이 깨진 JSON 이면 G007 이다)
 
 **해결 방법**:
 - 요청 본문을 포함하여 다시 요청
-- JSON 구문이 올바른지 확인
 
 ---
 
@@ -136,7 +136,8 @@ OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`us
 {
   "status": 400,
   "divisionCode": "G004",
-  "resultMessage": "Missing Servlet RequestParameter Exception"
+  "reason": "필수 파라미터 'size' 가 없습니다.",
+  "resultMessage": "Missing Request Parameter"
 }
 ```
 
@@ -157,7 +158,7 @@ OAuth2 프로토콜 엔드포인트(`/oauth2/token`·`introspect`·`revoke`·`us
 
 ---
 
-### G006 - JSON Parse Error
+### G006 - Malformed JSON
 
 **HTTP Status**: 400
 
@@ -173,7 +174,7 @@ JSON 파싱에 실패했습니다.
 
 ---
 
-### G007 - Jackson Processing Error
+### G007 - Malformed Request Body
 
 **HTTP Status**: 400
 
@@ -217,7 +218,7 @@ JSON 직렬화/역직렬화 오류입니다.
 
 ---
 
-### G010 - Null Pointer Error
+### G010 - Internal Server Error (Null 참조)
 
 **HTTP Status**: 500
 
@@ -231,7 +232,7 @@ JSON 직렬화/역직렬화 오류입니다.
 
 ---
 
-### G011 - Validation Error
+### G011 - One or more validation errors occurred
 
 **HTTP Status**: 400
 
@@ -245,7 +246,7 @@ JSON 직렬화/역직렬화 오류입니다.
   "errors": null,
   "status": 400,
   "divisionCode": "G011",
-  "resultMessage": "handle Validation Exception"
+  "resultMessage": "One or more validation errors occurred"
 }
 ```
 
@@ -255,11 +256,11 @@ JSON 직렬화/역직렬화 오류입니다.
 
 ---
 
-### G012 - Header Missing Error
+### G012 - Missing Or Invalid Header
 
 **HTTP Status**: 400
 
-필수 헤더가 누락되었습니다.
+필수 헤더가 없거나 유효하지 않습니다. `reason` 은 「필수 헤더 '{헤더 이름}' 가 없습니다.」 입니다.
 
 **원인**:
 - Authorization 헤더 누락
@@ -270,7 +271,7 @@ JSON 직렬화/역직렬화 오류입니다.
 
 ---
 
-### G014 - External API Error
+### G014 - Bad Gateway
 
 **HTTP Status**: 502
 
@@ -314,9 +315,9 @@ JSON 직렬화/역직렬화 오류입니다.
 
 | 예외 | ErrorCode | HTTP | 구분 코드 |
 |---|---|---|---|
-| `AuthenticationException` · `UnauthorizedException` · `InvalidTokenException` | `UNAUTHORIZED_ERROR` | 401 | G007A |
+| `AuthenticationException` · `UnauthorizedException` · `InvalidTokenException` | `UNAUTHORIZED_ERROR` | 401 | G015 |
 | `ForbiddenException` · `AuthorizationException` | `FORBIDDEN_ERROR` | 403 | G008 |
-| `DuplicateUserException` · `DuplicateResourceException` | `CONFLICT_ERROR` | 409 | G008A |
+| `DuplicateUserException` · `DuplicateResourceException` | `CONFLICT_ERROR` | 409 | G013 |
 | `ResourceNotFoundException` | `NOT_FOUND_ERROR` | 404 | G009 |
 | `AccountLockedException` | `ACCOUNT_LOCKED_ERROR` | 423 | AUTH001 |
 | `MfaException` | 생성자 인자 `MFA_*` | 아래 표 | MFA001~MFA006 |
@@ -338,8 +339,8 @@ JSON 직렬화/역직렬화 오류입니다.
   "reason": "아이디 또는 비밀번호가 올바르지 않습니다",
   "errors": null,
   "status": 401,
-  "divisionCode": "G007A",
-  "resultMessage": "Unauthorized Exception"
+  "divisionCode": "G015",
+  "resultMessage": "Unauthorized"
 }
 ```
 
@@ -428,7 +429,7 @@ JSON 직렬화/역직렬화 오류입니다.
   "status": 423,
   "divisionCode": "AUTH001",
   "reason": "계정이 잠겼습니다. 1799초 후 다시 시도하세요.",
-  "resultMessage": "Account Locked Exception"
+  "resultMessage": "Account Locked"
 }
 ```
 

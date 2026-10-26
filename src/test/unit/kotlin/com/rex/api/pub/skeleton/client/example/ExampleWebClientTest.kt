@@ -14,6 +14,11 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.mapstruct.factory.Mappers
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpMethod
+import org.springframework.web.reactive.function.client.WebClientRequestException
+import java.net.ConnectException
+import java.net.URI
 
 class ExampleWebClientTest : BehaviorSpec({
     val webClientUtil = mockk<WebClientUtil>()
@@ -139,7 +144,31 @@ class ExampleWebClientTest : BehaviorSpec({
                         service.registerUser(request)
                     }
                 exception.errorCode shouldBe ErrorCode.EXTERNAL_API_ERROR
-                exception.message shouldBe "외부 API 호출 실패: Connection timeout"
+                exception.message shouldBe "외부 API 호출에 실패했습니다."
+                exception.cause?.message shouldBe "Connection timeout"
+            }
+        }
+
+        When("외부 API 에 연결하지 못하면(원인 사슬에 WebClientRequestException)") {
+            every {
+                webClientUtil.get(
+                    baseUrl = any(),
+                    uri = any(),
+                    responseType = ExternalUserResponseDto::class.java,
+                    timeout = any(),
+                )
+            } throws
+                RuntimeException(
+                    "GET 요청 실패: Connection refused",
+                    WebClientRequestException(ConnectException("Connection refused"), HttpMethod.GET, URI.create("http://upstream.invalid"), HttpHeaders()),
+                )
+
+            Then("503 SERVICE_UNAVAILABLE_ERROR 로 감싼다") {
+                val exception =
+                    shouldThrow<ApiCallException> {
+                        service.registerUser(request)
+                    }
+                exception.errorCode shouldBe ErrorCode.SERVICE_UNAVAILABLE_ERROR
             }
         }
     }

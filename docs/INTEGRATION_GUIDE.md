@@ -35,23 +35,24 @@ Authorization: Bearer {access_token}
 
 ### 응답 형식
 
-**성공 응답:**
+**성공 응답:** 래퍼 없이 각 API 의 응답 모델을 그대로 돌려줍니다. 예: 로그인
 ```json
 {
-  "status": 200,
-  "divisionCode": "0000",
-  "resultMsg": "Success",
-  "data": { ... }
+  "accessToken": "eyJ...",
+  "refreshToken": "eyJ...",
+  "expiresIn": 3600
 }
 ```
 
-**에러 응답:**
+**에러 응답:** `ErrorResponseModel` 입니다(`docs/ERROR_CODES.md`). `reason` 은 사용자에게 그대로 보여도 되는 문장입니다.
 ```json
 {
+  "code": "NOT_VALID_ERROR",
+  "reason": "email: 올바른 형식의 이메일 주소여야 합니다",
+  "errors": null,
   "status": 400,
   "divisionCode": "G011",
-  "reason": "email: 올바른 형식의 이메일 주소여야 합니다",
-  "resultMessage": "handle Validation Exception"
+  "resultMessage": "One or more validation errors occurred"
 }
 ```
 
@@ -154,7 +155,7 @@ class ApiClient {
       refreshToken,
     });
 
-    const { accessToken, refreshToken: newRefreshToken } = response.data.data;
+    const { accessToken, refreshToken: newRefreshToken } = response.data;
     this.setTokens(accessToken, newRefreshToken);
     return accessToken;
   }
@@ -202,22 +203,16 @@ interface LoginRequest {
 }
 
 interface LoginResponse {
-  status: number;
-  data: {
-    accessToken: string;
-    refreshToken: string;
-    expiresIn: number;
-  };
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
 interface UserResponse {
-  status: number;
-  data: {
-    userId: number;
-    loginId: string;
-    nickname: string;
-    email: string;
-  };
+  userId: number;
+  loginId: string;
+  nickname: string;
+  email: string;
 }
 
 export const authService = {
@@ -228,8 +223,8 @@ export const authService = {
     );
 
     // 토큰 저장
-    localStorage.setItem('access_token', response.data.accessToken);
-    localStorage.setItem('refresh_token', response.data.refreshToken);
+    localStorage.setItem('access_token', response.accessToken);
+    localStorage.setItem('refresh_token', response.refreshToken);
 
     return response;
   },
@@ -294,8 +289,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initAuth = async () => {
       if (authService.isAuthenticated()) {
         try {
-          const response = await authService.getCurrentUser();
-          setUser(response.data);
+          setUser(await authService.getCurrentUser());
         } catch (error) {
           // 토큰 만료 등으로 실패 시 로그아웃
           localStorage.removeItem('access_token');
@@ -310,8 +304,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (loginId: string, password: string) => {
     await authService.login({ loginId, password });
-    const response = await authService.getCurrentUser();
-    setUser(response.data);
+    setUser(await authService.getCurrentUser());
   };
 
   const logout = async () => {
@@ -419,7 +412,7 @@ export function useAuth() {
       password,
     });
 
-    const { accessToken, refreshToken } = response.data.data;
+    const { accessToken, refreshToken } = response.data;
     setTokens(accessToken, refreshToken);
 
     await fetchUser();
@@ -452,7 +445,7 @@ export function useAuth() {
       const response = await axios.get(`${API_BASE_URL}/api/v1/users/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      user.value = response.data.data;
+      user.value = response.data;
     } catch (error) {
       clearTokens();
     } finally {
@@ -570,12 +563,8 @@ class APIClient {
         }
 
         struct RefreshResponse: Decodable {
-            let data: TokenData
-
-            struct TokenData: Decodable {
-                let accessToken: String
-                let refreshToken: String
-            }
+            let accessToken: String
+            let refreshToken: String
         }
 
         let response: RefreshResponse = try await request(
@@ -585,8 +574,8 @@ class APIClient {
             requiresAuth: false
         )
 
-        self.accessToken = response.data.accessToken
-        self.refreshToken = response.data.refreshToken
+        self.accessToken = response.accessToken
+        self.refreshToken = response.refreshToken
     }
 
     // MARK: - Auth Methods
@@ -598,12 +587,8 @@ class APIClient {
         }
 
         struct LoginResponse: Decodable {
-            let data: TokenData
-
-            struct TokenData: Decodable {
-                let accessToken: String
-                let refreshToken: String
-            }
+            let accessToken: String
+            let refreshToken: String
         }
 
         let response: LoginResponse = try await request(
@@ -613,8 +598,8 @@ class APIClient {
             requiresAuth: false
         )
 
-        accessToken = response.data.accessToken
-        refreshToken = response.data.refreshToken
+        accessToken = response.accessToken
+        refreshToken = response.refreshToken
 
         return try await getCurrentUser()
     }
@@ -630,12 +615,7 @@ class APIClient {
     }
 
     func getCurrentUser() async throws -> User {
-        struct UserResponse: Decodable {
-            let data: User
-        }
-
-        let response: UserResponse = try await request(endpoint: "/api/v1/users/me")
-        return response.data
+        return try await request(endpoint: "/api/v1/users/me")
     }
 }
 
@@ -681,16 +661,16 @@ dependencies {
 // ApiService.kt
 interface ApiService {
     @POST("api/v1/auth/login")
-    suspend fun login(@Body request: LoginRequest): Response<ApiResponse<TokenResponse>>
+    suspend fun login(@Body request: LoginRequest): Response<TokenResponse>
 
     @POST("api/v1/auth/logout")
-    suspend fun logout(): Response<ApiResponse<Unit>>
+    suspend fun logout(): Response<Unit>
 
     @POST("api/v1/auth/refresh")
-    suspend fun refreshToken(@Body request: RefreshRequest): Response<ApiResponse<TokenResponse>>
+    suspend fun refreshToken(@Body request: RefreshRequest): Response<TokenResponse>
 
     @GET("api/v1/users/me")
-    suspend fun getCurrentUser(): Response<ApiResponse<UserResponse>>
+    suspend fun getCurrentUser(): Response<UserResponse>
 }
 
 // Models
@@ -714,13 +694,6 @@ data class UserResponse(
     val loginId: String,
     val nickname: String,
     val email: String
-)
-
-data class ApiResponse<T>(
-    val status: Int,
-    val divisionCode: String,
-    val resultMsg: String,
-    val data: T?
 )
 ```
 
@@ -775,7 +748,7 @@ class TokenAuthenticator(
                 )
 
                 if (refreshResponse.isSuccessful) {
-                    val tokens = refreshResponse.body()?.data
+                    val tokens = refreshResponse.body()
                     if (tokens != null) {
                         tokenManager.saveTokens(tokens.accessToken, tokens.refreshToken)
 
@@ -1227,12 +1200,8 @@ extension APIClient {
         }
 
         struct LoginResponse: Decodable {
-            let data: LoginData
-
-            struct LoginData: Decodable {
-                let accessToken: String
-                let refreshToken: String
-            }
+            let accessToken: String
+            let refreshToken: String
         }
 
         let response: LoginResponse = try await request(
@@ -1243,8 +1212,8 @@ extension APIClient {
         )
 
         // 토큰 저장
-        accessToken = response.data.accessToken
-        refreshToken = response.data.refreshToken
+        accessToken = response.accessToken
+        refreshToken = response.refreshToken
 
         return try await getCurrentUser()
     }
@@ -1275,13 +1244,14 @@ class KakaoLoginManager(
                 request = SocialTokenRequest(accessToken = token.accessToken)
             )
 
-            if (response.isSuccessful && response.body()?.data != null) {
-                val tokens = response.body()!!.data!!
+            val tokens = response.body()
+            if (response.isSuccessful && tokens != null) {
                 tokenManager.saveTokens(tokens.accessToken, tokens.refreshToken)
 
                 // 사용자 정보 조회
                 val userResponse = apiService.getCurrentUser()
-                Result.success(userResponse.body()!!.data!!)
+                val user = userResponse.body() ?: return Result.failure(Exception("User lookup failed"))
+                Result.success(user)
             } else {
                 Result.failure(Exception("Login failed"))
             }

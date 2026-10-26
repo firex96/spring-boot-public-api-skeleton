@@ -12,6 +12,7 @@ import com.rex.api.pub.skeleton.enums.auth.MfaOrigin
 import com.rex.api.pub.skeleton.enums.auth.SocialProvider
 import com.rex.api.pub.skeleton.enums.auth.UserStatus
 import com.rex.api.pub.skeleton.exception.auth.AccountLockedException
+import com.rex.api.pub.skeleton.exception.auth.AuthenticationException
 import com.rex.api.pub.skeleton.exception.auth.ForbiddenException
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserEntityService
 import com.rex.api.pub.skeleton.persistence.jpa.service.auth.UserSocialAccountEntityService
@@ -122,6 +123,18 @@ class SocialAuthBizServiceLoginProtectionTest : BehaviorSpec({
             service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", null, MfaOrigin.API_SOCIAL)
             verify(exactly = 0) { loginAttemptBizService.isIpBlocked(any()) }
             verify(exactly = 1) { loginAttemptBizService.isUserLocked("user1") }
+        }
+    }
+
+    Given("SP-5 공급자 토큰 획득 실패") {
+        val upstream = IllegalStateException("upstream detail https://internal.example")
+        every { client.getAccessToken("code", null) } throws upstream
+
+        Then("하위 예외 메시지 없이 고정 문장으로 실패하고 원인은 cause 에 남는다") {
+            val exception =
+                shouldThrow<AuthenticationException> { service.socialLogin(SocialProvider.GOOGLE, "code", null, "WEB", "agent", ip, MfaOrigin.API_SOCIAL) }
+            exception.message shouldBe "소셜 인증에 실패했습니다."
+            exception.cause shouldBe upstream
         }
     }
 })

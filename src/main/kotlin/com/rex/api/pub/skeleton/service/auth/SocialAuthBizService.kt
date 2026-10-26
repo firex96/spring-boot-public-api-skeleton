@@ -88,7 +88,7 @@ class SocialAuthBizService(
                 userAgent = deviceInfo,
                 reason = "토큰 획득 실패: ${e.message}",
             )
-            throw AuthenticationException("소셜 인증에 실패했습니다: ${e.message}")
+            throw AuthenticationException("소셜 인증에 실패했습니다.", e)
         }
 
         val socialUserInfo = try {
@@ -102,7 +102,7 @@ class SocialAuthBizService(
                 userAgent = deviceInfo,
                 reason = "사용자 정보 조회 실패: ${e.message}",
             )
-            throw AuthenticationException("소셜 사용자 정보를 가져올 수 없습니다")
+            throw AuthenticationException("소셜 사용자 정보를 가져올 수 없습니다", e)
         }
 
         val socialAccount = userSocialAccountEntityService.getByProviderAndProviderId(provider.name, socialUserInfo.providerId)

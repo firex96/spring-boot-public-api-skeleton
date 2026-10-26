@@ -6,6 +6,7 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.extension
 
@@ -14,30 +15,42 @@ import kotlin.io.path.extension
  *
  * 최상위 `class`·`interface`·`object`(enum·data·annotation 포함)는 파일에 하나만 둔다. 예외는 Kotlin extension 파일(최상위 함수·프로퍼티만)과
  * `sealed` 계층(sealed 타입과 그 직접 하위 타입)뿐이며 `typealias`·`fun main` 은 세지 않는다. 리플렉션은 파일 경계를 보지 못하므로
- * `src/main/kotlin` 소스를 읽어 컬럼 0 선언을 센다(블록 주석·raw string·컬럼 0 줄 주석은 같은 길이 공백으로 지워 줄 번호를 보존).
+ * `src/main/kotlin` 과 테스트 소스셋(`src/test/<소스셋>/kotlin`) 소스를 읽어 컬럼 0 선언을 센다(블록 주석·raw string·컬럼 0 줄 주석은 같은 길이 공백으로 지워 줄 번호를 보존).
  * 파일 이름 = 클래스 이름은 ktlint `standard:filename` 이 강제하므로 여기서는 보지 않는다.
- * 규칙마다 레포별 최소 스캔 대상 수(`MIN`)를 별도 케이스(OC-0)로 단언해 스캐너·경로 고장이 공허 통과하지 않는다 — 세 스켈레톤이 이 파일을 글자 그대로 공유한다.
+ * 규칙마다 레포별 최소 스캔 대상 수(`MIN`·`MIN_TEST`)를 별도 케이스(OC-0·OC-5)로 단언해 스캐너·경로 고장이 공허 통과하지 않는다 — 세 스켈레톤이 이 파일을 글자 그대로 공유한다.
  */
 class OneClassPerFileConventionTest : BehaviorSpec({
 
     Given("src/main/kotlin 의 .kt 파일") {
-        val files = Files.walk(Paths.get("src/main/kotlin")).use { stream -> stream.filter { it.extension == "kt" }.toList() }
-        val declarationsByFile = files.associateWith { topLevelDeclarations(Files.readString(it)) }
+        val declarationsByFile = scan(listOf("src/main/kotlin"))
         val declarationCount = declarationsByFile.values.sumOf { it.size }
-        println("OC-0 files=${files.size} declarations=$declarationCount (min ${MIN.files}/${MIN.declarations})")
+        println("OC-0 files=${declarationsByFile.size} declarations=$declarationCount (min ${MIN.files}/${MIN.declarations})")
 
         Then("OC-0 스캔 파일·선언 수가 최소 수 이상이다 (스캐너·경로 고장으로 공허 통과하지 않는다)") {
-            files.size shouldBeGreaterThanOrEqual MIN.files
+            declarationsByFile.size shouldBeGreaterThanOrEqual MIN.files
             declarationCount shouldBeGreaterThanOrEqual MIN.declarations
         }
 
         Then("OC-1 파일마다 세는 최상위 선언은 하나다 (extension 파일·sealed 계층 예외)") {
-            val violations =
-                declarationsByFile.mapNotNull { (file, decls) ->
-                    val countable = countableDeclarations(decls)
-                    if (countable.size > 1) "$file: ${countable.joinToString(", ") { it.name }} (${countable.size} declarations)" else null
-                }.sorted()
+            val violations = violations(declarationsByFile)
             violations.forEach { println("OC-1 violation: $it") }
+            violations.shouldBeEmpty()
+        }
+    }
+
+    Given("테스트 소스셋의 .kt 파일") {
+        val declarationsByFile = scan(TEST_ROOTS)
+        val declarationCount = declarationsByFile.values.sumOf { it.size }
+        println("OC-5 files=${declarationsByFile.size} declarations=$declarationCount (min ${MIN_TEST.files}/${MIN_TEST.declarations})")
+
+        Then("OC-5 스캔 파일·선언 수가 최소 수 이상이다 (스캐너·경로 고장으로 공허 통과하지 않는다)") {
+            declarationsByFile.size shouldBeGreaterThanOrEqual MIN_TEST.files
+            declarationCount shouldBeGreaterThanOrEqual MIN_TEST.declarations
+        }
+
+        Then("OC-6 테스트 코드도 파일마다 세는 최상위 선언은 하나다 (테스트용 컨트롤러·요청 클래스도 각자 파일)") {
+            val violations = violations(declarationsByFile)
+            violations.forEach { println("OC-6 violation: $it") }
             violations.shouldBeEmpty()
         }
     }
@@ -83,6 +96,33 @@ class OneClassPerFileConventionTest : BehaviorSpec({
                 "internal" to MinTargets(files = 100, declarations = 100),
                 "batch" to MinTargets(files = 140, declarations = 140),
             ).getValue(REPO)
+
+        /** 테스트 소스셋의 최소 스캔 대상 수 — `MIN` 과 같은 목적이다. 2026-10-26 실측(public 169·163, internal 67·67, batch 58·58)의 약 90%. */
+        private val MIN_TEST =
+            mapOf(
+                "pub" to MinTargets(files = 150, declarations = 140),
+                "internal" to MinTargets(files = 60, declarations = 60),
+                "batch" to MinTargets(files = 50, declarations = 50),
+            ).getValue(REPO)
+
+        /** 스캔하는 테스트 소스셋 — `src/test/<소스셋>/kotlin` 을 찾아 쓴다. 레포마다 소스셋이 다르고(batch 에는 e2e 가 없다) 새 소스셋도 빠지지 않게 한다. */
+        private val TEST_ROOTS: List<String> =
+            Paths.get("src/test").takeIf { Files.isDirectory(it) }?.let { root ->
+                Files.list(root).use { dirs -> dirs.map { it.resolve("kotlin") }.filter { Files.isDirectory(it) }.map { it.toString() }.toList() }
+            } ?: emptyList()
+
+        private fun scan(roots: List<String>): Map<Path, List<Declaration>> =
+            roots
+                .map { Paths.get(it) }
+                .filter { Files.isDirectory(it) }
+                .flatMap { root -> Files.walk(root).use { stream -> stream.filter { it.extension == "kt" }.toList() } }
+                .associateWith { topLevelDeclarations(Files.readString(it)) }
+
+        private fun violations(declarationsByFile: Map<Path, List<Declaration>>): List<String> =
+            declarationsByFile.mapNotNull { (file, decls) ->
+                val countable = countableDeclarations(decls)
+                if (countable.size > 1) "$file: ${countable.joinToString(", ") { it.name }} (${countable.size} declarations)" else null
+            }.sorted()
 
         /** 블록 주석 · raw string · 컬럼 0 줄 주석 — 같은 길이 공백으로 지워 줄 번호를 보존한다. */
         private val NOISE = Regex("""/\*[\s\S]*?\*/|"{3}[\s\S]*?"{3}|^//[^\n]*""", RegexOption.MULTILINE)

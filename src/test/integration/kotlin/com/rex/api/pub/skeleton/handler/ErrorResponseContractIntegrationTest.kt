@@ -3,6 +3,7 @@ package com.rex.api.pub.skeleton.handler
 import com.rex.api.pub.skeleton.config.IntegrationTestConfiguration
 import com.rex.api.pub.skeleton.config.TestcontainersConfiguration
 import io.kotest.core.spec.style.DescribeSpec
+import io.kotest.matchers.string.shouldNotContain
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
@@ -10,6 +11,7 @@ import org.springframework.http.MediaType
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.ContextConfiguration
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.ResultActions
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -117,8 +119,71 @@ class ErrorResponseContractIntegrationTest(
                     .andExpect(status().isConflict)
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.code").value("CONFLICT_ERROR"))
-                    .andExpect(jsonPath("$.divisionCode").value("G008A"))
+                    .andExpect(jsonPath("$.divisionCode").value("G013"))
                     .andExpect(jsonPath("$.reason").value("이미 처리된 요청입니다"))
+            }
+        }
+
+        // 응답의 문구(reason·resultMessage)는 사용자에게 그대로 보여도 되는 문장이어야 한다 — 내부 상세는 로그로만 간다.
+        describe("응답 문구는 사용자 문장이다") {
+
+            fun ResultActions.bodyHasNoInternals(vararg extra: String): ResultActions {
+                val body = andReturn().response.contentAsString
+                (listOf("com.rex", "Exception", "java.") + extra).forEach { body shouldNotContain it }
+                return this
+            }
+
+            it("깨진 JSON 은 형식 오류 문장과 코드 제목만 싣는다") {
+                mockMvc
+                    .perform(post("/test/exception/validate").contentType(MediaType.APPLICATION_JSON).content("{\"user_name\":"))
+                    .andExpect(status().isBadRequest)
+                    .andExpect(jsonPath("$.reason").value(ErrorReason.MALFORMED_BODY))
+                    .andExpect(jsonPath("$.resultMessage").value("Malformed Request Body"))
+                    .bodyHasNoInternals()
+            }
+
+            it("non-null 필드가 빠진 본문은 DTO 클래스 이름을 싣지 않는다") {
+                mockMvc
+                    .perform(post("/test/exception/strict").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isBadRequest)
+                    .andExpect(jsonPath("$.code").value("JACKSON_PROCESS_ERROR"))
+                    .andExpect(jsonPath("$.reason").value(ErrorReason.MALFORMED_BODY))
+                    .bodyHasNoInternals("TestStrictRequest", "login_id")
+            }
+
+            it("경로 변수 타입 불일치는 파라미터 이름만 싣는다") {
+                mockMvc
+                    .perform(get("/test/exception/type-mismatch/abc"))
+                    .andExpect(status().isBadRequest)
+                    .andExpect(jsonPath("$.code").value("NOT_VALID_ERROR"))
+                    .andExpect(jsonPath("$.reason").value(ErrorReason.invalidFormat("id")))
+                    .bodyHasNoInternals("abc")
+            }
+
+            it("@ModelAttribute 바인딩 실패는 변환 예외 문구 대신 필드 이름만 싣는다") {
+                mockMvc
+                    .perform(get("/test/exception/model-attribute").param("size", "abc"))
+                    .andExpect(status().isBadRequest)
+                    .andExpect(jsonPath("$.code").value("NOT_VALID_ERROR"))
+                    .andExpect(jsonPath("$.reason").value(ErrorReason.invalidFormat("size")))
+                    .bodyHasNoInternals("abc", "NumberFormatException", "Integer")
+            }
+
+            it("5xx 는 고정 문장만 싣는다") {
+                mockMvc
+                    .perform(get("/test/exception/generic"))
+                    .andExpect(status().isInternalServerError)
+                    .andExpect(jsonPath("$.reason").value(ErrorReason.SERVER_ERROR))
+                    .andExpect(jsonPath("$.resultMessage").value("Internal Server Error"))
+                    .bodyHasNoInternals("내부 상세")
+            }
+
+            it("외부 API 실패는 외부 서비스 문장만 싣는다") {
+                mockMvc
+                    .perform(get("/test/exception/api-call"))
+                    .andExpect(status().isServiceUnavailable)
+                    .andExpect(jsonPath("$.reason").value(ErrorReason.EXTERNAL_SERVICE_ERROR))
+                    .bodyHasNoInternals("External service is unavailable")
             }
         }
     }

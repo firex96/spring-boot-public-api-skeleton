@@ -2,6 +2,7 @@ package com.rex.api.pub.skeleton.security
 
 import com.rex.api.pub.skeleton.config.E2ETestConfiguration
 import com.rex.api.pub.skeleton.config.E2ETestDataSetup
+import com.rex.api.pub.skeleton.handler.ErrorReason
 import com.rex.api.pub.skeleton.support.E2eResourceJanitor
 import com.rex.api.pub.skeleton.support.E2eResources
 import com.rex.api.pub.skeleton.support.createAndLoginUser
@@ -68,12 +69,15 @@ class ErrorResponseFormatE2ETest(
             methodBody["code"] shouldBe "FORBIDDEN_ERROR"
             filterBody["divisionCode"] shouldBe "G008"
             methodBody["divisionCode"] shouldBe "G008"
+            // 필터 체인과 GlobalExceptionHandler 가 같은 문장을 쓴다(ErrorReason)
+            filterBody["reason"] shouldBe ErrorReason.FORBIDDEN
+            methodBody["reason"] shouldBe ErrorReason.FORBIDDEN
         }
     }
 
     describe("401 — 인증 없이 인증 필요 API") {
 
-        it("ErrorResponseModel(UNAUTHORIZED_ERROR) 이다") {
+        it("ErrorResponseModel(UNAUTHORIZED_ERROR, G015) 이다") {
             // when
             val response = restTemplate.getJson<Map<String, Any?>>("/users/me")
 
@@ -82,6 +86,8 @@ class ErrorResponseFormatE2ETest(
             val body = response.body.shouldNotBeNull()
             body.keys shouldBe errorResponseKeys
             body["code"] shouldBe "UNAUTHORIZED_ERROR"
+            body["divisionCode"] shouldBe "G015"
+            body["reason"] shouldBe ErrorReason.UNAUTHORIZED
         }
     }
 })

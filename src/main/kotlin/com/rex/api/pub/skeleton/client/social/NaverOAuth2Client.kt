@@ -67,11 +67,11 @@ class NaverOAuth2Client(
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
                 .bodyToMono(Map::class.java)
-                .block() ?: throw AuthenticationException("네이버 토큰 발급 실패")
+                .block() ?: throw AuthenticationException("네이버 토큰 발급에 실패했습니다.")
 
         if (response["error"] != null) {
             log.error("Naver token error: {}", response)
-            throw AuthenticationException("네이버 토큰 발급 실패: ${response["error_description"]}")
+            throw AuthenticationException("네이버 토큰 발급에 실패했습니다.")
         }
 
         return OAuth2TokenResponse(
@@ -89,11 +89,11 @@ class NaverOAuth2Client(
                 .header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
                 .retrieve()
                 .bodyToMono(NaverUserResponse::class.java)
-                .block() ?: throw AuthenticationException("네이버 사용자 정보 조회 실패")
+                .block() ?: throw AuthenticationException("네이버 사용자 정보 조회에 실패했습니다.")
 
         if (response.resultcode != "00" || response.response == null) {
             log.error("Naver user info error: {}", response)
-            throw AuthenticationException("네이버 사용자 정보 조회 실패: ${response.message}")
+            throw AuthenticationException("네이버 사용자 정보 조회에 실패했습니다.")
         }
 
         val userInfo = response.response

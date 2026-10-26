@@ -69,11 +69,11 @@ class KakaoOAuth2Client(
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
                 .bodyToMono(Map::class.java)
-                .block() ?: throw AuthenticationException("카카오 토큰 발급 실패")
+                .block() ?: throw AuthenticationException("카카오 토큰 발급에 실패했습니다.")
 
         if (response["error"] != null) {
             log.error("Kakao token error: {}", response)
-            throw AuthenticationException("카카오 토큰 발급 실패: ${response["error_description"]}")
+            throw AuthenticationException("카카오 토큰 발급에 실패했습니다.")
         }
 
         return OAuth2TokenResponse(
@@ -91,7 +91,7 @@ class KakaoOAuth2Client(
                 .header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
                 .retrieve()
                 .bodyToMono(KakaoUserResponse::class.java)
-                .block() ?: throw AuthenticationException("카카오 사용자 정보 조회 실패")
+                .block() ?: throw AuthenticationException("카카오 사용자 정보 조회에 실패했습니다.")
 
         val nickname =
             response.kakao_account?.profile?.nickname

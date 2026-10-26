@@ -420,7 +420,9 @@ db/migration/{schema}/
 - **업무 예외는 `CodedException` 을 상속하고, HTTP 상태와 구분 코드는 `ErrorCode` 하나가 정한다.** 새 오류는 `ErrorCode` 에 항목을 추가하고 `throw CodedException(ErrorCode.X)` 로 던진다 — 같은 코드를 여러 곳에서 던지거나 `catch` 로 구분해야 할 때만 하위 클래스를 만든다. 문자열 code 를 받는 생성자는 두지 않는다
 - `GlobalExceptionHandler` 는 `CodedException` 하나로 받는다. 모든 핸들러가 `respond(errorCode, reason)` 으로 응답해 **본문 `status` 는 항상 HTTP 상태와 같다**. HTTP 상태를 코드와 따로 정하는 핸들러를 두지 않는다
 - 주요 예외: `ClientBadRequestException`(400 G001) · `InvalidRequestParameterException`(400 G001) · `ItemNotFoundException`(404 G009) · `ApiCallException`(기본 502 G014, 연결 실패 503 G016) · `AuthException` 하위 인증 예외(코드표 `docs/ERROR_CODES.md`)
-- 검출: `ErrorCodeContractTest`(모든 코드의 status 400~599·구분 코드 유일) · `ErrorResponseContractIntegrationTest`(본문 `status` = HTTP 상태)
+- **응답 문구는 사용자 문장이다** — `reason` 은 업무 예외 4xx 면 예외 메시지, 검증 실패면 `필드: 검증 메시지`, 그 밖은 `handler/ErrorReason` 의 고정 문장(5xx 포함)이다. `resultMessage`(= `ErrorCode.message`)는 사람이 읽는 제목이고, 스택 공통 코드는 asp 와 같은 값이다(정본 SKELETON `docs/error-codes.md`). 업무 예외 메시지에는 하위 예외 메시지(`e.message`)·외부 시스템 응답 문구·URL 을 합치지 않는다 — 상세는 로그와 `cause` 에 남긴다. 요청이 보낸 식별자를 되돌려 주는 것은 괜찮다
+- 로그는 `respond` 한 곳에서 남긴다 — 4xx `warn`(원래 메시지), 5xx `error`(스택). 필터 체인(`SecurityConfiguration`)의 401·403 문구도 `ErrorReason` 을 쓴다
+- 검출: `ErrorCodeContractTest`(모든 코드의 status 400~599·구분 코드 유일·제목 형식) · `ErrorResponseContractIntegrationTest`(본문 `status` = HTTP 상태, 응답 문구에 내부 상세 없음) · 소셜 클라이언트 테스트(공급자 오류 문구 미노출)
 - **오류 응답 계약은 세 가지다** — JSON 두 형식과 사람이 보는 HTML 화면 하나.
 
   | 경로 | 형식 |

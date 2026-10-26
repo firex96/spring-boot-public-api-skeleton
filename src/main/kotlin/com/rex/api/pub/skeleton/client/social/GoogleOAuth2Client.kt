@@ -72,11 +72,11 @@ class GoogleOAuth2Client(
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
                 .bodyToMono(Map::class.java)
-                .block() ?: throw AuthenticationException("구글 토큰 발급 실패")
+                .block() ?: throw AuthenticationException("구글 토큰 발급에 실패했습니다.")
 
         if (response["error"] != null) {
             log.error("Google token error: {}", response)
-            throw AuthenticationException("구글 토큰 발급 실패: ${response["error_description"]}")
+            throw AuthenticationException("구글 토큰 발급에 실패했습니다.")
         }
 
         return OAuth2TokenResponse(
@@ -94,7 +94,7 @@ class GoogleOAuth2Client(
                 .header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
                 .retrieve()
                 .bodyToMono(GoogleUserResponse::class.java)
-                .block() ?: throw AuthenticationException("구글 사용자 정보 조회 실패")
+                .block() ?: throw AuthenticationException("구글 사용자 정보 조회에 실패했습니다.")
 
         return SocialUserInfo(
             provider = SocialProvider.GOOGLE,

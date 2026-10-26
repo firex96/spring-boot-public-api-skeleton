@@ -23,32 +23,32 @@ enum class ErrorCode(
      * *********************************************************************************************
      *
      */
-    BAD_REQUEST_ERROR(400, "G001", "Bad Request Exception"),
+    BAD_REQUEST_ERROR(400, "G001", "Bad Request"),
     // 잘못된 서버 요청
 
     // @RequestBody 데이터 미 존재
-    REQUEST_BODY_MISSING_ERROR(400, "G002", "Required request body is missing"),
+    REQUEST_BODY_MISSING_ERROR(400, "G002", "Request Body Missing"),
 
     // 유효하지 않은 타입
-    INVALID_TYPE_VALUE(400, "G003", " Invalid Type Value"),
+    INVALID_TYPE_VALUE(400, "G003", "Invalid Type Value"),
 
     // Request Parameter 로 데이터가 전달되지 않을 경우
-    MISSING_REQUEST_PARAMETER_ERROR(400, "G004", "Missing Servlet RequestParameter Exception"),
+    MISSING_REQUEST_PARAMETER_ERROR(400, "G004", "Missing Request Parameter"),
 
     // 서버 측 입출력 실패
-    IO_ERROR(500, "G005", "I/O Exception"),
+    IO_ERROR(500, "G005", "I/O Error"),
 
     // com.google.gson JSON 파싱 실패
-    JSON_PARSE_ERROR(400, "G006", "JsonParseException"),
+    JSON_PARSE_ERROR(400, "G006", "Malformed JSON"),
 
     // tools.jackson.core Processing Error
-    JACKSON_PROCESS_ERROR(400, "G007", "tools.jackson.core Exception"),
+    JACKSON_PROCESS_ERROR(400, "G007", "Malformed Request Body"),
 
     // 인증 실패
-    UNAUTHORIZED_ERROR(401, "G007A", "Unauthorized Exception"),
+    UNAUTHORIZED_ERROR(401, "G015", "Unauthorized"),
 
     // 계정 잠금 (로그인 시도 횟수 초과) — docs/ERROR_CODES.md 「AccountLockedException」 423 / AUTH001
-    ACCOUNT_LOCKED_ERROR(423, "AUTH001", "Account Locked Exception"),
+    ACCOUNT_LOCKED_ERROR(423, "AUTH001", "Account Locked"),
 
     // 2차 인증 — docs/ERROR_CODES.md 「MfaException」
     MFA_INVALID_CODE(400, "MFA001", "Invalid MFA Code"),
@@ -59,22 +59,22 @@ enum class ErrorCode(
     MFA_TOO_MANY_ATTEMPTS(429, "MFA006", "Too Many MFA Attempts"),
 
     // 권한이 없음
-    FORBIDDEN_ERROR(403, "G008", "Forbidden Exception"),
+    FORBIDDEN_ERROR(403, "G008", "Forbidden"),
 
     // 리소스 충돌 (중복 등)
-    CONFLICT_ERROR(409, "G008A", "Conflict Exception"),
+    CONFLICT_ERROR(409, "G013", "Conflict"),
 
     // 서버로 요청한 리소스가 존재하지 않음
-    NOT_FOUND_ERROR(404, "G009", "Not Found Exception"),
+    NOT_FOUND_ERROR(404, "G009", "Not Found"),
 
     // NULL Point Exception 발생
-    NULL_POINT_ERROR(500, "G010", "Null Point Exception"),
+    NULL_POINT_ERROR(500, "G010", "Internal Server Error"),
 
     // @RequestBody 및 @RequestParam, @PathVariable 값이 유효하지 않음
-    NOT_VALID_ERROR(400, "G011", "handle Validation Exception"),
+    NOT_VALID_ERROR(400, "G011", "One or more validation errors occurred"),
 
     // 필수 Header 값이 없거나 유효하지 않음
-    NOT_VALID_HEADER_ERROR(400, "G012", "Header에 데이터가 존재하지 않는 경우 "),
+    NOT_VALID_HEADER_ERROR(400, "G012", "Missing Or Invalid Header"),
 
     // 외부 API 가 오류로 응답했거나 호출이 실패함
     EXTERNAL_API_ERROR(502, "G014", "Bad Gateway"),
@@ -83,7 +83,7 @@ enum class ErrorCode(
     SERVICE_UNAVAILABLE_ERROR(503, "G016", "Service Unavailable"),
 
     // 서버가 처리 할 방법을 모르는 경우 발생
-    INTERNAL_SERVER_ERROR(500, "G999", "Internal Server Error Exception"),
+    INTERNAL_SERVER_ERROR(500, "G999", "Internal Server Error"),
 
     /******************************** Custom Error CodeList ****************************************/
     // 업무 코드는 여기에 추가하고 `throw CodedException(ErrorCode.X)` 로 던진다. status 가 곧 HTTP 응답 상태다.

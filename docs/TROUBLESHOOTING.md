@@ -158,7 +158,7 @@ Error creating bean with name 'xxx': Unsatisfied dependency...
 ```json
 {
   "status": 401,
-  "divisionCode": "G007A",
+  "divisionCode": "G015",
   "reason": "Authorization header missing"
 }
 ```
@@ -176,7 +176,7 @@ curl -X GET http://localhost:8080/api/v1/users/me \
 ```json
 {
   "status": 401,
-  "divisionCode": "G007A",
+  "divisionCode": "G015",
   "reason": "Token has expired"
 }
 ```
@@ -195,7 +195,7 @@ curl -X POST http://localhost:8080/api/v1/auth/refresh \
 ```json
 {
   "status": 401,
-  "divisionCode": "G007A",
+  "divisionCode": "G015",
   "reason": "Invalid token format"
 }
 ```

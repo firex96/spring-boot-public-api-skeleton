@@ -82,7 +82,7 @@ class ExampleWebClient(
             throw e
         } catch (e: Exception) {
             logger.error("사용자 등록 실패: userId=${request.userId}", e)
-            throw ApiCallException("외부 API 호출 실패: ${e.message}", cause = e)
+            throw ApiCallException.from(e)
         }
     }
 

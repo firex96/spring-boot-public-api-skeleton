@@ -17,7 +17,7 @@ import tools.jackson.databind.json.JsonMapper
 class SecurityErrorResponseWriter(
     private val jsonMapper: JsonMapper,
 ) {
-    fun write(response: HttpServletResponse, errorCode: ErrorCode, reason: String?) {
+    fun write(response: HttpServletResponse, errorCode: ErrorCode, reason: String) {
         response.status = errorCode.status
         response.contentType = MediaType.APPLICATION_JSON_VALUE
         response.characterEncoding = Charsets.UTF_8.name()

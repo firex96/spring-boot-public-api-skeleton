@@ -4,6 +4,7 @@ import com.rex.api.pub.skeleton.config.audit.AuditProperties
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSecurityPaths
 import com.rex.api.pub.skeleton.config.security.browser.BrowserSessionValidationFilter
 import com.rex.api.pub.skeleton.enums.ErrorCode
+import com.rex.api.pub.skeleton.handler.ErrorReason
 import com.rex.api.pub.skeleton.service.auth.AuthBizService
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.FilterRegistrationBean
@@ -183,11 +184,11 @@ class SecurityConfiguration(
 
     private fun customAuthenticationEntryPoint(): AuthenticationEntryPoint =
         AuthenticationEntryPoint { _, response, _ ->
-            securityErrorResponseWriter.write(response, ErrorCode.UNAUTHORIZED_ERROR, "인증이 필요합니다")
+            securityErrorResponseWriter.write(response, ErrorCode.UNAUTHORIZED_ERROR, ErrorReason.UNAUTHORIZED)
         }
 
     private fun customAccessDeniedHandler(): AccessDeniedHandler =
         AccessDeniedHandler { _, response, _ ->
-            securityErrorResponseWriter.write(response, ErrorCode.FORBIDDEN_ERROR, "접근 권한이 없습니다")
+            securityErrorResponseWriter.write(response, ErrorCode.FORBIDDEN_ERROR, ErrorReason.FORBIDDEN)
         }
 }
